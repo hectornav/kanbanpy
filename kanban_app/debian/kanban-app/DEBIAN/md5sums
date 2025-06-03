@@ -1,0 +1,16 @@
+cab5b08033a2886043adeba95be49446  usr/bin/kanban
+d41d8cd98f00b204e9800998ecf8427e  usr/lib/python3/dist-packages/app/__init__.py
+d82b8eef4ff43525e1a3bc84ad739bf0  usr/lib/python3/dist-packages/app/controllers.py
+7c921bc4c48151d0c34c8c42b082498c  usr/lib/python3/dist-packages/app/models.py
+23060b4988c74621b22518a3ad69efbf  usr/lib/python3/dist-packages/app/styles.py
+d41d8cd98f00b204e9800998ecf8427e  usr/lib/python3/dist-packages/app/utils.py
+6e325f990736f2228573362c53f1d68f  usr/lib/python3/dist-packages/app/views.py
+4a30c6c6aacd9fe06d7d8f7851000aeb  usr/lib/python3/dist-packages/kanban_app-1.0-py3.10.egg-info/PKG-INFO
+68b329da9893e34099c7d8ad5cb9c940  usr/lib/python3/dist-packages/kanban_app-1.0-py3.10.egg-info/dependency_links.txt
+f7e5d5fc1587f95185b09c2c902ebb10  usr/lib/python3/dist-packages/kanban_app-1.0-py3.10.egg-info/entry_points.txt
+97ea8b3469603dcccab810d1d144c043  usr/lib/python3/dist-packages/kanban_app-1.0-py3.10.egg-info/requires.txt
+02d9c81326b39258a437b3732a5dbdfc  usr/lib/python3/dist-packages/kanban_app-1.0-py3.10.egg-info/top_level.txt
+e0f1ad91a45573e57ef7f3a42dc13f31  usr/share/applications/kanban.desktop
+bb6dfd68ae15a65e80e8291df0064c70  usr/share/doc/kanban-app/changelog.Debian.gz
+64f1bd9478e87a10c233cb08e6d91593  usr/share/icons/kanban.png
+d32a780b43b142e702651d150fabc756  usr/share/kanban-app/kanban_data.json

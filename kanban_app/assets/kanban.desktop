@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Kanban App
+Comment=Simple Kanban task manager
+Exec=/usr/bin/kanban
+Icon=kanban
+Terminal=false
+Type=Application
+Categories=Utility;Productivity;

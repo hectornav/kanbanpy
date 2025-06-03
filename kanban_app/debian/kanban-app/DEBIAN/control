@@ -1,0 +1,11 @@
+Package: kanban-app
+Version: 1.0-1
+Architecture: all
+Maintainer: Héctor Navarro <h.navarrobarboza@gmail.com>
+Installed-Size: 1124
+Depends: python3:any, python3-pip
+Section: utils
+Priority: optional
+Homepage: https://hnavarrob.pythonanywhere.com/
+Description: Simple Kanban task management application
+ A PyQt6-based Kanban board application for task management.

@@ -1,0 +1,16 @@
+kanban_data.json
+setup.py
+app/__init__.py
+app/controllers.py
+app/models.py
+app/styles.py
+app/utils.py
+app/views.py
+assets/kanban.desktop
+assets/kanban.png
+kanban_app.egg-info/PKG-INFO
+kanban_app.egg-info/SOURCES.txt
+kanban_app.egg-info/dependency_links.txt
+kanban_app.egg-info/entry_points.txt
+kanban_app.egg-info/requires.txt
+kanban_app.egg-info/top_level.txt
