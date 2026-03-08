@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Kanbanpy Pro
+Comment=Gestión de tareas premium (Apple Style)
+Exec=/home/hector/Desktop/Projects/kanbanpy/dist/kanbanpy_pro_v2
+Icon=kanbanpy_pro
+Terminal=false
+Type=Application
+Categories=Office;Utility;
+Keywords=kanban;tasks;todo;
+StartupWMClass=kanbanpy_pro_v2

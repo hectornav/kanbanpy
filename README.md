@@ -52,4 +52,28 @@ pip install -r requirements.txt
 4. Llévalas a **Done** cuando hayas terminado.
 
 ---
+
+## 🚀 Instalación y Favoritos
+
+Para usar **Kanbanpy Pro** diariamente con un icono en tus favoritos:
+
+### Opción 1: Instalación del Sistema (Recomendado)
+Instala el paquete `.deb` incluido. Esto añadirá el icono automáticamente a tu menú de aplicaciones:
+```bash
+sudo apt install ./kanban-app_1.0-1_all.deb
+```
+Luego búscalo como "Kanban App" en tu menú y selecciona **"Añadir a favoritos"**.
+
+### Opción 2: Acceso Directo Manual
+Si prefieres no instalar el sistema, usa el archivo `kanbanpy.desktop` incluido:
+1. Copia el archivo a tu carpeta de aplicaciones local:
+   ```bash
+   cp kanbanpy.desktop ~/.local/share/applications/
+   ```
+2. Dale permisos de ejecución (si es necesario):
+   ```bash
+   chmod +x ~/.local/share/applications/kanbanpy.desktop
+   ```
+
+---
 *Kanbanpy Pro v2.0 - hnavarro*
