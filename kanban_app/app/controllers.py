@@ -20,21 +20,16 @@ class KanbanController(QObject):
         self.update_view()
 
     def add_task(self, column: str, task_data: dict, shared_ids: list):
-        print(f"DEBUG: Controller adding task to {column}: {task_data.get('text')}")
         self.model.add_task(column, task_data, shared_ids)
 
     def edit_task(self, column: str, row: int, new_data: dict, shared_ids: list):
-        print(f"DEBUG: Controller editing task in {column} at row {row}")
         self.model.edit_task(column, row, new_data, shared_ids)
 
     def remove_task(self, column: str, row: int):
-        print(f"DEBUG: Controller removing task from {column} at row {row}")
         self.model.remove_task(column, row)
 
     def move_task(self, from_col: str, from_row: int, to_col: str):
-        print(f"DEBUG: Controller moving task from {from_col} to {to_col}")
         self.model.move_task(from_col, from_row, to_col)
 
     def update_view(self):
-        print("DEBUG: Controller updating view with model data")
         self.view.update_tasks(self.model.tasks)

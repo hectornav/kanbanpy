@@ -41,9 +41,10 @@ QDialog QLabel {{ color: #e5e5ea; background: transparent; }}
     background: transparent;
 }}
 #HeaderUser {{
-    font-size: 12px;
+    font-size: 13px;
     color: #98989d;
     background: transparent;
+    font-weight: 500;
 }}
 QPushButton#LogoutBtn {{
     background: rgba(255,255,255,0.07);
@@ -62,14 +63,14 @@ QPushButton#LogoutBtn:hover {{ background: rgba(255,255,255,0.12); color: #e5e5e
 /* ── Column panel (uses inline stylesheet per-column in views.py) ─────── */
 /* CountBadge */
 #CountBadge {{
-    background: rgba(255,255,255,0.10);
+    background: rgba(255,255,255,0.08);
     color: #98989d;
-    border-radius: 8px;
-    padding: 0px 8px;
+    border-radius: 6px;
+    padding: 2px 8px;
     font-size: 11px;
-    font-weight: 600;
-    min-width: 20px;
-    qproperty-alignment: AlignCenter;
+    font-weight: 700;
+    min-width: 22px;
+    border: none;
 }}
 
 /* ── List widget ────────────────────────────────────────────────────────── */
@@ -89,13 +90,11 @@ QListWidget::item:selected {{ background: transparent; border: none; }}
 
 /* ── Task Card ──────────────────────────────────────────────────────────── */
 #TaskCard {{
-    background-color: #2c2c2e;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 12px;
+    /* Background and border are set dynamically in views.py */
+    border-radius: 16px;
 }}
 #TaskCard:hover {{
-    background-color: #3a3a3c;
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    /* Handled by dynamic style in views.py */
 }}
 
 /* DnD drop indicator */

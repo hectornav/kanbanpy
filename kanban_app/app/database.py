@@ -119,7 +119,8 @@ def _row_to_dict(row) -> dict:
 
 def get_tasks_for_user(user_id: int) -> dict:
     """Return owned tasks + globally shared + explicitly shared with this user."""
-    with get_connection() as conn:
+    conn = get_connection()
+    try:
         rows = conn.execute(
             """
             SELECT DISTINCT t.* FROM tasks t
@@ -127,23 +128,26 @@ def get_tasks_for_user(user_id: int) -> dict:
             WHERE t.owner_id = ?
                OR t.is_shared = 1
                OR ts.user_id = ?
-            ORDER BY t.column_name, t.sort_order, t.id
+            ORDER BY t.id ASC
             """,
             (user_id, user_id)
         ).fetchall()
-
-    result = {'ToDo': [], 'Doing': [], 'Done': []}
-    for row in rows:
-        d = _row_to_dict(row)
-        col = d['column_name']
-        if col in result:
-            result[col].append(d)
-    return result
+        
+        result = {'ToDo': [], 'Doing': [], 'Done': []}
+        for row in rows:
+            d = _row_to_dict(row)
+            col = d['column_name']
+            if col in result:
+                result[col].append(d)
+        return result
+    finally:
+        conn.close()
 
 
 def add_task(owner_id: int, task_data: dict, shared_user_ids: list = None) -> int:
     tags_str = ','.join(task_data.get('tags', []))
-    with get_connection() as conn:
+    conn = get_connection()
+    try:
         cur = conn.execute(
             """INSERT INTO tasks
                (owner_id, column_name, text, description, priority, tags, due_date, is_shared)
@@ -166,12 +170,16 @@ def add_task(owner_id: int, task_data: dict, shared_user_ids: list = None) -> in
                     conn.execute("INSERT INTO task_shares (task_id, user_id) VALUES (?,?)", (task_id, uid))
                 except Exception:
                     pass
-    return task_id
+        conn.commit()
+        return task_id
+    finally:
+        conn.close()
 
 
 def update_task(task_id: int, task_data: dict, shared_user_ids: list = None):
     tags_str = ','.join(task_data.get('tags', []))
-    with get_connection() as conn:
+    conn = get_connection()
+    try:
         conn.execute(
             """UPDATE tasks SET text=?, description=?, priority=?, tags=?,
                due_date=?, is_shared=?, column_name=? WHERE id=?""",
@@ -193,20 +201,34 @@ def update_task(task_id: int, task_data: dict, shared_user_ids: list = None):
                     conn.execute("INSERT INTO task_shares (task_id, user_id) VALUES (?,?)", (task_id, uid))
                 except Exception:
                     pass
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def get_shared_user_ids(task_id: int) -> list:
-    with get_connection() as conn:
+    conn = get_connection()
+    try:
         rows = conn.execute("SELECT user_id FROM task_shares WHERE task_id=?", (task_id,)).fetchall()
-    return [r['user_id'] for r in rows]
+        return [r['user_id'] for r in rows]
+    finally:
+        conn.close()
 
 
 def move_task(task_id: int, new_column: str):
-    with get_connection() as conn:
+    conn = get_connection()
+    try:
         conn.execute("UPDATE tasks SET column_name=? WHERE id=?", (new_column, task_id))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def delete_task(task_id: int):
-    with get_connection() as conn:
+    conn = get_connection()
+    try:
         conn.execute("DELETE FROM task_shares WHERE task_id=?", (task_id,))
         conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+        conn.commit()
+    finally:
+        conn.close()
