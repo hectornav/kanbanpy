@@ -4,8 +4,13 @@ database.py - SQLite persistence layer for Kanbanpy Pro
 import sqlite3
 import hashlib
 import os
+import sys
 
-DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'kanban.db')
+# PyInstaller compatibility: look for DB near the executable if frozen
+if getattr(sys, 'frozen', False):
+    DB_PATH = os.path.join(os.path.dirname(sys.executable), 'kanban.db')
+else:
+    DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'kanban.db')
 
 
 def get_connection():
