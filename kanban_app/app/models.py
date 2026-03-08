@@ -1,54 +1,54 @@
+"""
+models.py - SQLite-backed KanbanModel for Kanbanpy Pro
+"""
 from PyQt6.QtCore import QObject, pyqtSignal
-import json
-import os
+from app import database as db
+
 
 class KanbanModel(QObject):
     data_changed = pyqtSignal()
 
-    def __init__(self):
+    def __init__(self, user: dict):
         super().__init__()
-        self.tasks = {
-            "ToDo": [],
-            "Doing": [],
-            "Done": []
-        }
+        self.user = user
+        self.user_id = user['id']
+        self.tasks = {'ToDo': [], 'Doing': [], 'Done': []}
         self.load_data()
 
-    def add_task(self, column, task_text):
-        if task_text.strip():
-            self.tasks[column].append({"text": task_text})
-            self.save_data()
-            self.data_changed.emit()
-
-    def edit_task(self, column, row, new_text):
-        if new_text.strip():
-            self.tasks[column][row]["text"] = new_text
-            self.save_data()
-            self.data_changed.emit()
-
-    def remove_task(self, column, row):
-        if 0 <= row < len(self.tasks[column]):
-            self.tasks[column].pop(row)
-            self.save_data()
-            self.data_changed.emit()
-
-    
-    def move_task(self, from_col, from_row, to_col):
-        if (from_col in self.tasks and to_col in self.tasks and
-            0 <= from_row < len(self.tasks[from_col])):
-            task = self.tasks[from_col].pop(from_row)
-            self.tasks[to_col].append(task)
-            self.save_data()  # ¡Esta línea es crucial!
-            self.data_changed.emit()
-
-    def save_data(self):
-        with open("kanban_data.json", "w") as f:
-            json.dump(self.tasks, f)
-
     def load_data(self):
-        if os.path.exists("kanban_data.json"):
-            with open("kanban_data.json", "r") as f:
-                try:
-                    self.tasks = json.load(f)
-                except json.JSONDecodeError:
-                    pass
+        self.tasks = db.get_tasks_for_user(self.user_id)
+
+    def add_task(self, column: str, task_data: dict, shared_user_ids: list = None):
+        if not task_data.get('text', '').strip():
+            return
+        task_data = dict(task_data)
+        task_data['column_name'] = column
+        db.add_task(self.user_id, task_data, shared_user_ids or [])
+        self.load_data()
+        self.data_changed.emit()
+
+    def edit_task(self, column: str, row: int, new_data: dict, shared_user_ids: list = None):
+        task_list = self.tasks.get(column, [])
+        if 0 <= row < len(task_list):
+            task_id = task_list[row]['id']
+            new_data = dict(new_data)
+            new_data['column_name'] = column
+            db.update_task(task_id, new_data, shared_user_ids)
+            self.load_data()
+            self.data_changed.emit()
+
+    def remove_task(self, column: str, row: int):
+        task_list = self.tasks.get(column, [])
+        if 0 <= row < len(task_list):
+            task_id = task_list[row]['id']
+            db.delete_task(task_id)
+            self.load_data()
+            self.data_changed.emit()
+
+    def move_task(self, from_col: str, from_row: int, to_col: str):
+        task_list = self.tasks.get(from_col, [])
+        if 0 <= from_row < len(task_list):
+            task_id = task_list[from_row]['id']
+            db.move_task(task_id, to_col)
+            self.load_data()
+            self.data_changed.emit()
