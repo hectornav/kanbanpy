@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { api } from "./api.js";
+import { useState } from "react";
 
 const PRIORITIES = [
   ["High", "Alta"],
@@ -7,7 +6,7 @@ const PRIORITIES = [
   ["Low", "Baja"]
 ];
 
-export default function TaskModal({ task, users, canDelete, onClose, onSave, onDelete }) {
+export default function TaskModal({ task, canDelete, canArchive, onClose, onSave, onDelete, onArchive }) {
   const isNew = task.id == null;
   const [form, setForm] = useState({
     text: task.text || "",
@@ -15,35 +14,18 @@ export default function TaskModal({ task, users, canDelete, onClose, onSave, onD
     priority: task.priority || "Medium",
     tags: (task.tags || []).join(", "),
     due_date: task.due_date || "",
-    column_name: task.column_name || "ToDo",
-    is_shared: !!task.is_shared
+    column_name: task.column_name || "ToDo"
   });
-  const [sharedIds, setSharedIds] = useState([]);
-
-  // Load explicit shares when editing an existing task.
-  useEffect(() => {
-    if (!isNew) {
-      api.taskShares(task.id).then((r) => setSharedIds(r.shared_user_ids)).catch(() => {});
-    }
-  }, [isNew, task.id]);
 
   function set(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
-  }
-
-  function toggleShare(uid) {
-    setSharedIds((ids) => (ids.includes(uid) ? ids.filter((i) => i !== uid) : [...ids, uid]));
   }
 
   function submit(e) {
     e.preventDefault();
     if (!form.text.trim()) return;
     onSave(
-      {
-        ...form,
-        tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
-        shared_user_ids: sharedIds
-      },
+      { ...form, tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean) },
       task.id
     );
   }
@@ -93,28 +75,12 @@ export default function TaskModal({ task, users, canDelete, onClose, onSave, onD
             </div>
           </div>
 
-          <label className="check">
-            <input type="checkbox" checked={form.is_shared} onChange={(e) => set("is_shared", e.target.checked)} />
-            Compartir con todos los usuarios
-          </label>
-
-          {!form.is_shared && users.length > 0 && (
-            <details className="share-box">
-              <summary>Compartir con personas concretas ({sharedIds.length})</summary>
-              <div className="share-list">
-                {users.map((u) => (
-                  <label key={u.id} className="check">
-                    <input type="checkbox" checked={sharedIds.includes(u.id)} onChange={() => toggleShare(u.id)} />
-                    @{u.username}
-                  </label>
-                ))}
-              </div>
-            </details>
-          )}
-
           <footer className="modal-foot">
             {canDelete && (
               <button type="button" className="danger" onClick={() => onDelete(task.id)}>Eliminar</button>
+            )}
+            {canArchive && (
+              <button type="button" className="ghost" onClick={() => onArchive(task.id)}>Archivar</button>
             )}
             <div className="spacer" />
             <button type="button" className="ghost" onClick={onClose}>Cancelar</button>

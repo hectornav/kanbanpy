@@ -54,14 +54,25 @@ export const api = {
     request(`/auth/security-question?username=${encodeURIComponent(username)}`),
   resetPassword: (payload) => request("/auth/reset-password", { method: "POST", body: payload }),
 
-  board: () => request("/board"),
+  // Boards
+  listBoards: () => request("/boards"),
+  createBoard: (payload) => request("/boards", { method: "POST", body: payload }),
+  updateBoard: (id, payload) => request(`/boards/${id}`, { method: "PUT", body: payload }),
+  deleteBoard: (id) => request(`/boards/${id}`, { method: "DELETE" }),
+  boardMembers: (id) => request(`/boards/${id}/members`),
+  boardActivity: (id) => request(`/boards/${id}/activity`),
+
+  // Tasks
   users: () => request("/users"),
-  createTask: (task) => request("/tasks", { method: "POST", body: task }),
+  boardTasks: (boardId, archived = false) =>
+    request(`/boards/${boardId}/tasks${archived ? "?archived=true" : ""}`),
+  createTask: (boardId, task) => request(`/boards/${boardId}/tasks`, { method: "POST", body: task }),
   updateTask: (id, task) => request(`/tasks/${id}`, { method: "PUT", body: task }),
   moveTask: (id, payload) => request(`/tasks/${id}/move`, { method: "POST", body: payload }),
   reorder: (payload) => request("/columns/reorder", { method: "POST", body: payload }),
-  deleteTask: (id) => request(`/tasks/${id}`, { method: "DELETE" }),
-  taskShares: (id) => request(`/tasks/${id}/shares`)
+  archiveTask: (id) => request(`/tasks/${id}/archive`, { method: "POST" }),
+  restoreTask: (id) => request(`/tasks/${id}/restore`, { method: "POST" }),
+  deleteTask: (id) => request(`/tasks/${id}`, { method: "DELETE" })
 };
 
 // Live sync: reconnecting WebSocket that calls onChange when the board mutates.

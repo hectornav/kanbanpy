@@ -24,6 +24,7 @@ class KanbanClient:
     def __init__(self, base_url: str = DEFAULT_URL):
         self.base_url = base_url.rstrip("/")
         self.token: str | None = None
+        self._board_id: int | None = None
 
     # ── low-level request ──
     def _request(self, method: str, path: str, body: dict | None = None) -> dict | list | None:
@@ -67,15 +68,24 @@ class KanbanClient:
             "username": username, "answer": answer, "new_password": new_password,
         })
 
-    # ── board / tasks ──
+    # ── boards / tasks ──
+    def default_board_id(self) -> int:
+        """The desktop client works against the user's first board."""
+        if self._board_id is None:
+            boards = self._request("GET", "/boards")
+            self._board_id = boards[0]["id"] if boards else None
+        return self._board_id
+
     def board(self) -> dict:
-        return self._request("GET", "/board")
+        bid = self.default_board_id()
+        return self._request("GET", f"/boards/{bid}/tasks")
 
     def users(self) -> list:
         return self._request("GET", "/users")
 
     def create_task(self, task: dict) -> int:
-        return self._request("POST", "/tasks", task)["id"]
+        bid = self.default_board_id()
+        return self._request("POST", f"/boards/{bid}/tasks", task)["id"]
 
     def update_task(self, task_id: int, task: dict) -> None:
         self._request("PUT", f"/tasks/{task_id}", task)
@@ -85,6 +95,3 @@ class KanbanClient:
 
     def delete_task(self, task_id: int) -> None:
         self._request("DELETE", f"/tasks/{task_id}")
-
-    def task_shares(self, task_id: int) -> list:
-        return self._request("GET", f"/tasks/{task_id}/shares")["shared_user_ids"]

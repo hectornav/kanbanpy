@@ -22,15 +22,27 @@ class ForgotResetRequest(BaseModel):
     new_password: str = Field(min_length=4, max_length=256)
 
 
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    user: "UserOut"
-
-
 class UserOut(BaseModel):
     id: int
     username: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserOut
+
+
+class BoardCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    color: str = "#5b8cff"
+
+
+class BoardUpdate(BaseModel):
+    name: str | None = Field(default=None, max_length=80)
+    color: str | None = None
+    is_shared: bool | None = None
+    member_ids: list[int] | None = None
 
 
 class TaskIn(BaseModel):
@@ -40,8 +52,6 @@ class TaskIn(BaseModel):
     tags: list[str] = []
     due_date: str = ""
     column_name: str = "ToDo"
-    is_shared: bool = False
-    shared_user_ids: list[int] | None = None
 
 
 class MoveRequest(BaseModel):
@@ -50,8 +60,6 @@ class MoveRequest(BaseModel):
 
 
 class ReorderRequest(BaseModel):
+    board_id: int
     column_name: str
     ordered_ids: list[int]
-
-
-TokenResponse.model_rebuild()

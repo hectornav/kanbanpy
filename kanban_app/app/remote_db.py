@@ -23,7 +23,9 @@ def init_db() -> None:
 
 def authenticate_user(username: str, password: str):
     try:
-        return _client.login(username, password)  # dict {id, username}
+        user = _client.login(username, password)  # dict {id, username}
+        _client._board_id = None  # reset cached board for the new session
+        return user
     except ApiError:
         return None
 
@@ -66,16 +68,13 @@ def get_tasks_for_user(user_id: int) -> dict:
 
 
 def add_task(owner_id: int, task_data: dict, shared_user_ids: list | None = None) -> int:
-    payload = dict(task_data)
-    payload["shared_user_ids"] = shared_user_ids or []
-    return _client.create_task(payload)
+    # Task-level sharing moved to board-level; shared_user_ids is accepted for
+    # signature compatibility but ignored by the desktop client.
+    return _client.create_task(dict(task_data))
 
 
 def update_task(task_id: int, task_data: dict, shared_user_ids: list | None = None):
-    payload = dict(task_data)
-    if shared_user_ids is not None:
-        payload["shared_user_ids"] = shared_user_ids
-    _client.update_task(task_id, payload)
+    _client.update_task(task_id, dict(task_data))
 
 
 def move_task(task_id: int, new_column: str):
@@ -87,7 +86,6 @@ def delete_task(task_id: int):
 
 
 def get_shared_user_ids(task_id: int) -> list:
-    try:
-        return _client.task_shares(task_id)
-    except ApiError:
-        return []
+    # Per-task sharing is superseded by board-level sharing; the desktop share
+    # picker is a no-op in remote mode for now.
+    return []
