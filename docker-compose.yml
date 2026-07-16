@@ -1,0 +1,48 @@
+# Kanbanpy Pro — self-hosted on your NAS.
+#
+#   1. Copy .env.example to .env and set KANBAN_SECRET_KEY (see the file).
+#   2. docker compose up -d --build
+#   3. Open http://<nas-ip>:8000  (or your Tailscale hostname — see below).
+#
+services:
+  kanban:
+    build: .
+    image: kanbanpy-pro:2.0
+    container_name: kanbanpy
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # REQUIRED in production. Generate once with:
+      #   python -c "import secrets; print(secrets.token_hex(32))"
+      KANBAN_SECRET_KEY: ${KANBAN_SECRET_KEY:?Set KANBAN_SECRET_KEY in .env}
+      KANBAN_ENV: production
+      # Lock CORS to your own origins once you know them; "*" is fine on a
+      # private Tailscale network.
+      KANBAN_CORS_ORIGINS: ${KANBAN_CORS_ORIGINS:-*}
+    volumes:
+      # Persists kanban.db across rebuilds. Your data lives here.
+      - kanban-data:/data
+
+# ── Accessing it from your phone anywhere, without opening ports ──────────────
+# Recommended: install Tailscale on the NAS host and on your phone. Then reach
+# the board at http://<nas-hostname>.<tailnet>.ts.net:8000 from anywhere.
+#
+# If you prefer a Tailscale sidecar instead of host install, uncomment below and
+# provide a TS_AUTHKEY in .env, then point the app at network_mode: service:ts.
+#
+#  ts:
+#    image: tailscale/tailscale:latest
+#    container_name: kanban-ts
+#    hostname: kanban
+#    environment:
+#      TS_AUTHKEY: ${TS_AUTHKEY}
+#      TS_STATE_DIR: /var/lib/tailscale
+#    volumes:
+#      - ts-state:/var/lib/tailscale
+#    cap_add: [net_admin, sys_module]
+#    restart: unless-stopped
+
+volumes:
+  kanban-data:
+#  ts-state:

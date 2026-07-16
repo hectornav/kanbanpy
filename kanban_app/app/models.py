@@ -2,7 +2,7 @@
 models.py - SQLite-backed KanbanModel for Kanbanpy Pro
 """
 from PyQt6.QtCore import QObject, pyqtSignal
-from app import database as db
+from app import backend as db
 
 
 class KanbanModel(QObject):

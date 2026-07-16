@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QDate
-from app import database as db
+from app import backend as db
 
 
 COL_META = {

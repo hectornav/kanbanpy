@@ -1,79 +1,94 @@
-# 📋 Kanbanpy Pro v2.0
+# 📋 Kanbanpy Pro v2.0 — Hybrid (self-hosted)
 
-**Kanbanpy Pro** es una aplicación de escritorio premium para la gestión de tareas, inspirada en la estética de Apple (Dark Mode). Diseñada para ofrecer una experiencia fluida, visualmente impactante y altamente funcional.
+**Kanbanpy Pro** is a premium task-management Kanban with an Apple-inspired dark
+UI. It now runs as a **hybrid, self-hosted stack** (architecture "Option C"):
 
----
+```
+server/   → FastAPI core: REST + WebSocket, JWT + argon2 auth, SQLite (WAL).
+            Also serves the built PWA, so one container is the whole app.
+web/      → React PWA (Vite): works in any browser, installable on mobile.
+kanban_app/ → the original PyQt6 app, now an optional native desktop client
+              that talks to the same API.
+```
 
-## ✨ Características (Pro v2.0)
-
-- **Diseño Apple "High-Contrast":** Estética minimalista con bordes de color característicos para cada tipo de tarea.
-- **Navegación Dual:** Arrastra y suelta tareas o usa los nuevos botones de navegación rápida.
-- **Gestión de Fechas:** Calendario integrado con diseño premium.
-- **Seguridad:** Sistema de login persistente con cifrado SHA-256.
-- **Persistencia Robusta:** Backup automático con base de datos SQLite.
-- **Totalmente Portátil:** Se distribuye como un único ejecutable.
-
----
-
-## 🛠️ Compilación y Ejecución
-
-Si deseas compilar la aplicación tú mismo en Linux:
-
-1. **Compilar con un comando:**
-   ```bash
-   chmod +x compile.sh
-   ./compile.sh
-   ```
-
-2. **Ejecutar el binario generado:**
-   ```bash
-   ./dist/kanbanpy_pro_v2
-   ```
+One backend, two clients, all sharing the same data. Lives on your NAS,
+reachable from every screen.
 
 ---
 
-## 📦 Dependencias (para desarrollo)
+## 🚀 Run it on your NAS (Docker — recommended)
 
-- Python 3.12+
-- PyQt6
-- PyInstaller (para compilación)
-
-Para instalar manualmente:
 ```bash
+# 1. Set your signing key
+cp .env.example .env
+python3 -c "import secrets; print('KANBAN_SECRET_KEY=' + secrets.token_hex(32))" >> .env
+
+# 2. Build once and start (npm install + PWA build happen inside the image)
+docker compose up -d --build
+
+# 3. Open it
+#    http://<nas-ip>:8000
+```
+
+Your data persists in the `kanban-data` Docker volume across rebuilds.
+
+### 📱 Reach it from your phone, anywhere (Tailscale)
+
+Install [Tailscale](https://tailscale.com) on the NAS host and on your phone,
+then open `http://<nas-hostname>.<tailnet>.ts.net:8000`. No open ports, no public
+domain, end-to-end encrypted. On the phone, use the browser's **"Add to Home
+Screen"** to install the PWA. A Tailscale sidecar option is documented in
+`docker-compose.yml`.
+
+---
+
+## 🧑‍💻 Local development
+
+**Backend**
+```bash
+cd server
+python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
+uvicorn app.main:app --reload           # http://localhost:8000
+python test_smoke.py                     # end-to-end API smoke test
 ```
 
----
-
-## 🚀 Uso Rápido
-1. Inicia sesión o regístrate.
-2. Crea tareas en la columna **ToDo**.
-3. Muévelas a **Doing** mientras las realizas.
-4. Llévalas a **Done** cuando hayas terminado.
-
----
-
-## 🚀 Instalación y Favoritos
-
-Para usar **Kanbanpy Pro** diariamente con un icono en tus favoritos:
-
-### Opción 1: Instalación del Sistema (Recomendado)
-Instala el paquete `.deb` incluido. Esto añadirá el icono automáticamente a tu menú de aplicaciones:
+**Web PWA**
 ```bash
-sudo apt install ./kanban-app_1.0-1_all.deb
+cd web
+npm install
+npm run dev                              # http://localhost:5173 (proxies /api + /ws)
 ```
-Luego búscalo como "Kanban App" en tu menú y selecciona **"Añadir a favoritos"**.
 
-### Opción 2: Acceso Directo Manual
-Si prefieres no instalar el sistema, usa el archivo `kanbanpy.desktop` incluido:
-1. Copia el archivo a tu carpeta de aplicaciones local:
-   ```bash
-   cp kanbanpy.desktop ~/.local/share/applications/
-   ```
-2. Dale permisos de ejecución (si es necesario):
-   ```bash
-   chmod +x ~/.local/share/applications/kanbanpy.desktop
-   ```
+**Desktop client (PyQt6) against the API**
+```bash
+cd kanban_app
+pip install -r ../requirements.txt
+KANBAN_API_URL=http://localhost:8000 python main.py
+```
+Without `KANBAN_API_URL`, the desktop app falls back to its legacy local SQLite
+database and runs fully standalone.
 
 ---
-*Kanbanpy Pro v2.0 - hnavarro*
+
+## 🔐 Security
+
+- Passwords and security answers are hashed with **argon2id** (per-hash salt).
+- Auth uses signed **JWT** bearer tokens; `KANBAN_SECRET_KEY` is required in prod.
+- Per-task authorization: only owners can edit/delete/share; shared users can
+  view and move.
+- The desktop client no longer stores your password in plaintext.
+
+---
+
+## 🏗️ How the pieces fit
+
+| Layer | Tech | Role |
+|-------|------|------|
+| API core | FastAPI + Uvicorn | REST, WebSocket live sync, auth |
+| Storage | SQLite (WAL mode) | Single-file DB, ideal for a small/family instance |
+| Web client | React + Vite (PWA) | Browser + installable mobile app |
+| Desktop client | PyQt6 | Optional native window, same API |
+| Deploy | Docker + Tailscale | One container on your NAS, private remote access |
+
+*Kanbanpy Pro v2.0 — hnavarro*
