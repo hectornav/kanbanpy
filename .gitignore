@@ -42,3 +42,11 @@ Thumbs.db
 
 # Kanbanpy specific
 kanban_app/kanban_data.json
+
+# Node / web build
+node_modules/
+web/dist/
+
+# Debian packaging build tree
+kanban_app/debian/
+*.deb

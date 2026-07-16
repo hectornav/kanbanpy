@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QFrame, QStackedWidget, QMessageBox, QCheckBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSettings
-from app import database as db
+from app import backend as db
 
 
 class AuthWindow(QWidget):
@@ -151,14 +151,13 @@ class AuthWindow(QWidget):
         L.addLayout(row)
         L.addStretch()
 
-        # Load saved credentials
+        # Prefill only the remembered username; the password is never stored.
         settings = QSettings("Kanbanpy", "Pro")
         saved_u = settings.value("login/username", "")
-        saved_p = settings.value("login/password", "")
-        if saved_u and saved_p:
+        if saved_u:
             self.login_user.setText(saved_u)
-            self.login_pass.setText(saved_p)
             self.remember_cb.setChecked(True)
+            self.login_pass.setFocus()
 
         return w
 
@@ -169,14 +168,13 @@ class AuthWindow(QWidget):
         if user:
             self.login_error.setText("")
             
-            # Save or clear credentials
+            # Remember only the username — never store the password in plaintext.
             settings = QSettings("Kanbanpy", "Pro")
             if self.remember_cb.isChecked():
                 settings.setValue("login/username", u)
-                settings.setValue("login/password", p)
             else:
                 settings.remove("login/username")
-                settings.remove("login/password")
+            settings.remove("login/password")  # purge any legacy plaintext password
                 
             self.login_successful.emit(dict(user))
         else:

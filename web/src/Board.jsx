@@ -1,0 +1,163 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { api, auth, connectLiveSync } from "./api.js";
+import TaskModal from "./TaskModal.jsx";
+
+const COLUMNS = [
+  { key: "ToDo", label: "Por hacer", accent: "var(--todo)" },
+  { key: "Doing", label: "En curso", accent: "var(--doing)" },
+  { key: "Done", label: "Hecho", accent: "var(--done)" }
+];
+
+export default function Board({ user, onLogout }) {
+  const [board, setBoard] = useState({ ToDo: [], Doing: [], Done: [] });
+  const [users, setUsers] = useState([]);
+  const [editing, setEditing] = useState(null); // task object or {column} for new
+  const [dragId, setDragId] = useState(null);
+  const [error, setError] = useState("");
+  const boardRef = useRef(board);
+  boardRef.current = board;
+
+  const load = useCallback(async () => {
+    try {
+      setBoard(await api.board());
+    } catch (err) {
+      setError(err.message);
+      if (err.status === 401) onLogout();
+    }
+  }, [onLogout]);
+
+  useEffect(() => {
+    load();
+    api.users().then(setUsers).catch(() => {});
+    const disconnect = connectLiveSync(() => load());
+    return disconnect;
+  }, [load]);
+
+  async function handleSave(data, id) {
+    try {
+      if (id) await api.updateTask(id, data);
+      else await api.createTask(data);
+      setEditing(null);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function handleDelete(id) {
+    try {
+      await api.deleteTask(id);
+      setEditing(null);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  // ── Drag & drop between columns ──
+  function onDrop(columnKey) {
+    if (dragId == null) return;
+    setDragId(null);
+    // Optimistic move, then persist.
+    const from = findColumn(boardRef.current, dragId);
+    if (from === columnKey) return;
+    api.moveTask(dragId, { column_name: columnKey }).then(load).catch((e) => setError(e.message));
+  }
+
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="brand-mini">
+          <span className="logo-mark sm">📋</span>
+          <strong>Kanbanpy Pro</strong>
+        </div>
+        <div className="topbar-right">
+          <span className="who">@{user.username}</span>
+          <button className="ghost" onClick={() => setEditing({ column_name: "ToDo" })}>+ Nueva tarea</button>
+          <button className="ghost" onClick={onLogout}>Salir</button>
+        </div>
+      </header>
+
+      {error && <div className="banner" onClick={() => setError("")}>{error} · toca para cerrar</div>}
+
+      <div className="board-scroll">
+        <div className="board-grid">
+          {COLUMNS.map((col) => (
+            <section
+              key={col.key}
+              className="board-col"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => onDrop(col.key)}
+            >
+              <div className="col-head" style={{ "--accent": col.accent }}>
+                <span className="col-title">{col.label}</span>
+                <span className="col-count">{board[col.key]?.length || 0}</span>
+              </div>
+              <div className="col-body">
+                {(board[col.key] || []).map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    isOwner={task.owner_id === user.id}
+                    onDragStart={() => setDragId(task.id)}
+                    onClick={() => setEditing(task)}
+                  />
+                ))}
+                <button className="add-inline" onClick={() => setEditing({ column_name: col.key })}>
+                  + Añadir
+                </button>
+              </div>
+            </section>
+          ))}
+        </div>
+      </div>
+
+      {editing && (
+        <TaskModal
+          task={editing}
+          users={users}
+          canDelete={editing.id != null && editing.owner_id === user.id}
+          onClose={() => setEditing(null)}
+          onSave={handleSave}
+          onDelete={handleDelete}
+        />
+      )}
+    </div>
+  );
+}
+
+function TaskCard({ task, isOwner, onDragStart, onClick }) {
+  const prio = (task.priority || "").toLowerCase();
+  return (
+    <article
+      className={`card card-${task.column_name}`}
+      draggable
+      onDragStart={onDragStart}
+      onClick={onClick}
+      tabIndex={0}
+      onKeyDown={(e) => e.key === "Enter" && onClick()}
+    >
+      <p className="card-text">{task.text}</p>
+      <div className="card-meta">
+        {task.priority && <span className={`prio prio-${prio}`}>{prioLabel(task.priority)}</span>}
+        {task.tags?.map((t) => (
+          <span className="chip" key={t}>{t}</span>
+        ))}
+        {task.due_date && <span className="due">📅 {task.due_date}</span>}
+        {task.is_shared && <span className="shared" title="Compartida">👥</span>}
+        {!isOwner && <span className="shared" title="Compartida contigo">🔗</span>}
+      </div>
+    </article>
+  );
+}
+
+function prioLabel(p) {
+  return { High: "Alta", Medium: "Media", Low: "Baja" }[p] || p;
+}
+
+function findColumn(board, id) {
+  for (const key of Object.keys(board)) {
+    if (board[key].some((t) => t.id === id)) return key;
+  }
+  return null;
+}

@@ -4,7 +4,7 @@ Shows login first, then launches the Kanban board.
 """
 import sys
 from PyQt6.QtWidgets import QApplication
-from app import database as db
+from app import backend as db
 from app.styles import STYLESHEET
 from app.auth_views import AuthWindow
 from app.views import KanbanView
