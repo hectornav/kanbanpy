@@ -4,7 +4,7 @@ import { api, auth } from "./api.js";
 const FEATURES = [
   "Tablero Kanban multiusuario",
   "Prioridades, etiquetas y fechas",
-  "Comparte tareas con tu familia",
+  "Comparte tareas con otros usuarios",
   "Sincronización en vivo en cada pantalla"
 ];
 

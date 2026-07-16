@@ -8,12 +8,52 @@ const COLUMNS = [
   { key: "Done", label: "Hecho", accent: "var(--done)" }
 ];
 
+// Selectable board backgrounds (persisted in localStorage).
+const BACKGROUNDS = [
+  { id: "graphite", css: "", preview: "#0b0c10" },
+  { id: "aurora",
+    css: "radial-gradient(900px 520px at 12% -10%, rgba(62,207,142,0.20), transparent), radial-gradient(820px 520px at 100% 0%, rgba(91,140,255,0.22), transparent)",
+    preview: "linear-gradient(135deg,#3ecf8e,#5b8cff)" },
+  { id: "sunset",
+    css: "linear-gradient(165deg, rgba(240,164,58,0.24), rgba(229,72,77,0.16) 55%, transparent 88%)",
+    preview: "linear-gradient(135deg,#f0a43a,#e5484d)" },
+  { id: "ocean",
+    css: "linear-gradient(165deg, rgba(65,102,230,0.26), rgba(62,207,142,0.14))",
+    preview: "linear-gradient(135deg,#4166e6,#3ecf8e)" },
+  { id: "violet",
+    css: "radial-gradient(820px 520px at 30% -6%, rgba(139,92,246,0.28), transparent), radial-gradient(720px 520px at 100% 10%, rgba(91,140,255,0.18), transparent)",
+    preview: "linear-gradient(135deg,#8b5cf6,#5b8cff)" }
+];
+
+function readBg() {
+  try {
+    return JSON.parse(localStorage.getItem("kanban.bg")) || { type: "default" };
+  } catch {
+    return { type: "default" };
+  }
+}
+
+function bgStyle(value) {
+  if (value.type === "color") return { backgroundColor: value.value, backgroundImage: "none" };
+  if (value.type === "preset") {
+    const b = BACKGROUNDS.find((x) => x.id === value.value);
+    if (b?.css) return { backgroundColor: "var(--ground)", backgroundImage: b.css };
+  }
+  return undefined;
+}
+
 export default function Board({ user, onLogout }) {
   const [board, setBoard] = useState({ ToDo: [], Doing: [], Done: [] });
   const [users, setUsers] = useState([]);
   const [editing, setEditing] = useState(null); // task object or {column} for new
   const [dragId, setDragId] = useState(null);
   const [error, setError] = useState("");
+  const [bg, setBg] = useState(readBg);
+
+  function changeBg(value) {
+    setBg(value);
+    localStorage.setItem("kanban.bg", JSON.stringify(value));
+  }
   const boardRef = useRef(board);
   boardRef.current = board;
 
@@ -73,6 +113,7 @@ export default function Board({ user, onLogout }) {
         </div>
         <div className="topbar-right">
           <span className="who">@{user.username}</span>
+          <BackgroundPicker value={bg} onChange={changeBg} />
           <button className="ghost" onClick={() => setEditing({ column_name: "ToDo" })}>+ Nueva tarea</button>
           <button className="ghost" onClick={onLogout}>Salir</button>
         </div>
@@ -80,7 +121,7 @@ export default function Board({ user, onLogout }) {
 
       {error && <div className="banner" onClick={() => setError("")}>{error} · toca para cerrar</div>}
 
-      <div className="board-scroll">
+      <div className="board-scroll" style={bgStyle(bg)}>
         <div className="board-grid">
           {COLUMNS.map((col) => (
             <section
@@ -148,6 +189,45 @@ function TaskCard({ task, isOwner, onDragStart, onClick }) {
         {!isOwner && <span className="shared" title="Compartida contigo">🔗</span>}
       </div>
     </article>
+  );
+}
+
+function BackgroundPicker({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="bg-picker">
+      <button className="ghost" onClick={() => setOpen((o) => !o)} title="Fondo del tablero" aria-label="Fondo">🎨</button>
+      {open && (
+        <div className="bg-panel" onMouseLeave={() => setOpen(false)}>
+          <p className="lbl">Fondo del tablero</p>
+          <div className="bg-swatches">
+            {BACKGROUNDS.map((b) => {
+              const active =
+                (b.id === "graphite" && value.type === "default") ||
+                (value.type === "preset" && value.value === b.id);
+              return (
+                <button
+                  key={b.id}
+                  className={`bg-swatch${active ? " active" : ""}`}
+                  style={{ background: b.preview }}
+                  title={b.id}
+                  aria-label={b.id}
+                  onClick={() => onChange(b.id === "graphite" ? { type: "default" } : { type: "preset", value: b.id })}
+                />
+              );
+            })}
+          </div>
+          <label className="bg-custom">
+            <span>Color personalizado</span>
+            <input
+              type="color"
+              value={value.type === "color" ? value.value : "#0b0c10"}
+              onChange={(e) => onChange({ type: "color", value: e.target.value })}
+            />
+          </label>
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -95,7 +95,7 @@ export default function TaskModal({ task, users, canDelete, onClose, onSave, onD
 
           <label className="check">
             <input type="checkbox" checked={form.is_shared} onChange={(e) => set("is_shared", e.target.checked)} />
-            Compartir con toda la familia
+            Compartir con todos los usuarios
           </label>
 
           {!form.is_shared && users.length > 0 && (
