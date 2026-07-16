@@ -8,7 +8,11 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.svg"],
+      includeAssets: ["favicon.svg", "push-handler.js"],
+      workbox: {
+        // Bring in our push + notification-click handlers.
+        importScripts: ["push-handler.js"]
+      },
       manifest: {
         name: "Kanbanpy Pro",
         short_name: "Kanbanpy",

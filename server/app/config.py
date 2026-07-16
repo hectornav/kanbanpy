@@ -31,6 +31,17 @@ class Settings(BaseSettings):
     # When true (default), the API also serves the built PWA from web/dist.
     serve_static: bool = True
 
+    # Web Push (VAPID). Generate a keypair once with:
+    #   python -m server.gen_vapid   (or see .env.example)
+    # Leave empty to disable push notifications gracefully.
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    vapid_subject: str = "mailto:admin@kanbanpy.local"
+
+    # Login brute-force protection.
+    login_max_attempts: int = 6
+    login_lock_minutes: int = 15
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

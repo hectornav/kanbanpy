@@ -71,6 +71,22 @@ with c:
     check("bob can view its tasks", c.get(f"/api/boards/{b1}/tasks", headers=bob).status_code == 200)
     check("bob (member) can add a task", c.post(f"/api/boards/{b1}/tasks", headers=bob, json={"text": "Añadida por bob"}).status_code == 201)
 
+    # ── push subscription ──
+    print("push")
+    check("public key endpoint", c.get("/api/push/public-key").status_code == 200)
+    check("subscribe stores endpoint", c.post("/api/push/subscribe", headers=hdr,
+          json={"endpoint": "https://example.com/x", "keys": {"p256dh": "k", "auth": "a"}}).status_code == 200)
+    check("unsubscribe", c.post("/api/push/unsubscribe", headers=hdr,
+          json={"endpoint": "https://example.com/x"}).status_code == 200)
+
+    # ── login rate limiting ──
+    print("rate limiting")
+    for _ in range(6):
+        c.post("/api/auth/login", json={"username": "ratetest", "password": "wrong"})
+    c.post("/api/auth/register", json={"username": "ratetest", "password": "goodpass1"})
+    check("locked after repeated failures",
+          c.post("/api/auth/login", json={"username": "ratetest", "password": "goodpass1"}).status_code == 429)
+
     # ── deletion rules ──
     print("deletion")
     check("board owner can delete member's task",

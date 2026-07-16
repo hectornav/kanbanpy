@@ -72,7 +72,12 @@ export const api = {
   reorder: (payload) => request("/columns/reorder", { method: "POST", body: payload }),
   archiveTask: (id) => request(`/tasks/${id}/archive`, { method: "POST" }),
   restoreTask: (id) => request(`/tasks/${id}/restore`, { method: "POST" }),
-  deleteTask: (id) => request(`/tasks/${id}`, { method: "DELETE" })
+  deleteTask: (id) => request(`/tasks/${id}`, { method: "DELETE" }),
+
+  // Push notifications
+  pushPublicKey: () => request("/push/public-key"),
+  pushSubscribe: (subscription) => request("/push/subscribe", { method: "POST", body: subscription }),
+  pushUnsubscribe: (endpoint) => request("/push/unsubscribe", { method: "POST", body: { endpoint } })
 };
 
 // Live sync: reconnecting WebSocket that calls onChange when the board mutates.

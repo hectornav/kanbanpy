@@ -7,7 +7,9 @@ board owner.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from . import db
+import asyncio
+
+from . import db, push
 from .deps import get_current_user
 from .schemas import MoveRequest, ReorderRequest, TaskIn
 from .ws import manager
@@ -17,6 +19,15 @@ router = APIRouter(prefix="/api", tags=["tasks"])
 
 async def _notify(user_id: int) -> None:
     await manager.broadcast({"type": "board:changed", "by": user_id})
+
+
+async def _push_new_task(board_id: int, actor: dict, text: str) -> None:
+    if not push.configured():
+        return
+    user_ids = db.board_notify_user_ids(board_id, exclude=actor["id"])
+    if user_ids:
+        payload = {"title": "Nueva tarea", "body": f"@{actor['username']}: {text}", "url": "/"}
+        await asyncio.to_thread(push.notify_users, user_ids, payload)
 
 
 @router.get("/boards/{board_id}/tasks")
@@ -39,6 +50,7 @@ async def create_task(board_id: int, task: TaskIn, current=Depends(get_current_u
     if task_id is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "No access to this board.")
     await _notify(current["id"])
+    await _push_new_task(board_id, current, task.text)
     return {"id": task_id}
 
 

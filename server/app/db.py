@@ -111,8 +111,17 @@ def init_db() -> None:
                 FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS push_subscriptions (
+                endpoint    TEXT PRIMARY KEY,
+                user_id     INTEGER NOT NULL,
+                data        TEXT NOT NULL,
+                created_at  TEXT DEFAULT '',
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
             CREATE INDEX IF NOT EXISTS idx_members_user ON board_members(user_id);
             CREATE INDEX IF NOT EXISTS idx_activity_board ON activity_log(board_id);
+            CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
             """
         )
         # Migrate older schemas that predate boards/archiving. This must run
@@ -513,3 +522,47 @@ def delete_task(task_id: int, user_id: int) -> bool:
         conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
         _log(conn, task["board_id"], None, user_id, "deleted", task["text"])
     return True
+
+
+# ── Push subscriptions ─────────────────────────────────────────────────────────
+
+def save_push_subscription(user_id: int, endpoint: str, data_json: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO push_subscriptions (endpoint, user_id, data, created_at) VALUES (?,?,?,?) "
+            "ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id, data=excluded.data",
+            (endpoint, user_id, data_json, _now()),
+        )
+
+
+def delete_push_subscription(endpoint: str) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM push_subscriptions WHERE endpoint = ?", (endpoint,))
+
+
+def get_subscriptions_for_users(user_ids: list[int]) -> list[dict]:
+    if not user_ids:
+        return []
+    placeholders = ",".join("?" * len(user_ids))
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"SELECT endpoint, data FROM push_subscriptions WHERE user_id IN ({placeholders})",
+            user_ids,
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def board_notify_user_ids(board_id: int, exclude: int | None = None) -> list[int]:
+    """Users who should be notified about a board: owner + members (+ everyone if shared)."""
+    with get_connection() as conn:
+        board = conn.execute("SELECT owner_id, is_shared FROM boards WHERE id = ?", (board_id,)).fetchone()
+        if not board:
+            return []
+        if board["is_shared"]:
+            ids = {r["id"] for r in conn.execute("SELECT id FROM users").fetchall()}
+        else:
+            ids = {board["owner_id"]}
+            ids.update(r["user_id"] for r in conn.execute(
+                "SELECT user_id FROM board_members WHERE board_id = ?", (board_id,)).fetchall())
+    ids.discard(exclude)
+    return list(ids)

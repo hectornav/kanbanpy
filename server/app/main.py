@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, boards, db, tasks
+from . import auth, boards, db, push_routes, tasks
 from .config import settings
 from .ws import manager
 
@@ -28,6 +28,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(boards.router)
 app.include_router(tasks.router)
+app.include_router(push_routes.router)
 
 
 @app.on_event("startup")
