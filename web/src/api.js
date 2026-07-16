@@ -74,6 +74,14 @@ export const api = {
   restoreTask: (id) => request(`/tasks/${id}/restore`, { method: "POST" }),
   deleteTask: (id) => request(`/tasks/${id}`, { method: "DELETE" }),
 
+  // Task detail
+  taskDetail: (id) => request(`/tasks/${id}`),
+  addSubtask: (id, text) => request(`/tasks/${id}/subtasks`, { method: "POST", body: { text } }),
+  updateSubtask: (sid, payload) => request(`/subtasks/${sid}`, { method: "PUT", body: payload }),
+  deleteSubtask: (sid) => request(`/subtasks/${sid}`, { method: "DELETE" }),
+  addComment: (id, body) => request(`/tasks/${id}/comments`, { method: "POST", body: { body } }),
+  deleteComment: (cid) => request(`/comments/${cid}`, { method: "DELETE" }),
+
   // Push notifications
   pushPublicKey: () => request("/push/public-key"),
   pushSubscribe: (subscription) => request("/push/subscribe", { method: "POST", body: subscription }),

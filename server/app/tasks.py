@@ -11,7 +11,8 @@ import asyncio
 
 from . import db, push
 from .deps import get_current_user
-from .schemas import MoveRequest, ReorderRequest, TaskIn
+from .schemas import (CommentIn, MoveRequest, ReorderRequest, SubtaskIn,
+                      SubtaskUpdate, TaskIn)
 from .ws import manager
 
 router = APIRouter(prefix="/api", tags=["tasks"])
@@ -98,5 +99,57 @@ async def restore_task(task_id: int, current=Depends(get_current_user)):
 async def delete_task(task_id: int, current=Depends(get_current_user)):
     if not db.delete_task(task_id, current["id"]):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only delete your own tasks.")
+    await _notify(current["id"])
+    return {"detail": "deleted"}
+
+
+# ── Task detail: subtasks, comments, activity ──────────────────────────────────
+
+@router.get("/tasks/{task_id}")
+def task_detail(task_id: int, current=Depends(get_current_user)):
+    detail = db.get_task_detail(task_id, current["id"])
+    if detail is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "No access to this task.")
+    return detail
+
+
+@router.post("/tasks/{task_id}/subtasks", status_code=status.HTTP_201_CREATED)
+async def add_subtask(task_id: int, req: SubtaskIn, current=Depends(get_current_user)):
+    sid = db.add_subtask(task_id, current["id"], req.text)
+    if sid is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "No access to this task.")
+    await _notify(current["id"])
+    return {"id": sid}
+
+
+@router.put("/subtasks/{subtask_id}")
+async def update_subtask(subtask_id: int, req: SubtaskUpdate, current=Depends(get_current_user)):
+    if not db.update_subtask(subtask_id, current["id"], req.text, req.done):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "No access to this subtask.")
+    await _notify(current["id"])
+    return {"detail": "updated"}
+
+
+@router.delete("/subtasks/{subtask_id}")
+async def delete_subtask(subtask_id: int, current=Depends(get_current_user)):
+    if not db.delete_subtask(subtask_id, current["id"]):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "No access to this subtask.")
+    await _notify(current["id"])
+    return {"detail": "deleted"}
+
+
+@router.post("/tasks/{task_id}/comments", status_code=status.HTTP_201_CREATED)
+async def add_comment(task_id: int, req: CommentIn, current=Depends(get_current_user)):
+    cid = db.add_comment(task_id, current["id"], req.body)
+    if cid is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "No access to this task.")
+    await _notify(current["id"])
+    return {"id": cid}
+
+
+@router.delete("/comments/{comment_id}")
+async def delete_comment(comment_id: int, current=Depends(get_current_user)):
+    if not db.delete_comment(comment_id, current["id"]):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Cannot delete this comment.")
     await _notify(current["id"])
     return {"detail": "deleted"}

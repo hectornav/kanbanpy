@@ -111,6 +111,26 @@ def init_db() -> None:
                 FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS subtasks (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id     INTEGER NOT NULL,
+                text        TEXT    NOT NULL,
+                done        INTEGER DEFAULT 0,
+                position    INTEGER DEFAULT 0,
+                created_at  TEXT    DEFAULT '',
+                FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS comments (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id     INTEGER NOT NULL,
+                user_id     INTEGER NOT NULL,
+                body        TEXT    NOT NULL,
+                created_at  TEXT    DEFAULT '',
+                FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            );
+
             CREATE TABLE IF NOT EXISTS push_subscriptions (
                 endpoint    TEXT PRIMARY KEY,
                 user_id     INTEGER NOT NULL,
@@ -122,6 +142,8 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_members_user ON board_members(user_id);
             CREATE INDEX IF NOT EXISTS idx_activity_board ON activity_log(board_id);
             CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
+            CREATE INDEX IF NOT EXISTS idx_subtasks_task ON subtasks(task_id);
+            CREATE INDEX IF NOT EXISTS idx_comments_task ON comments(task_id);
             """
         )
         # Migrate older schemas that predate boards/archiving. This must run
@@ -131,6 +153,7 @@ def init_db() -> None:
             ("board_id", "ALTER TABLE tasks ADD COLUMN board_id INTEGER"),
             ("archived", "ALTER TABLE tasks ADD COLUMN archived INTEGER DEFAULT 0"),
             ("archived_at", "ALTER TABLE tasks ADD COLUMN archived_at TEXT DEFAULT ''"),
+            ("assignee_id", "ALTER TABLE tasks ADD COLUMN assignee_id INTEGER"),
         ]:
             if col not in tcols:
                 conn.execute(ddl)
@@ -390,9 +413,13 @@ def get_board_tasks(user_id: int, board_id: int, archived: bool = False) -> dict
             return None
         rows = conn.execute(
             """
-            SELECT * FROM tasks
-            WHERE board_id = ? AND archived = ?
-            ORDER BY column_name, sort_order ASC, id ASC
+            SELECT t.*, u.username AS assignee_username,
+                   (SELECT COUNT(*) FROM subtasks s WHERE s.task_id = t.id) AS subtask_total,
+                   (SELECT COUNT(*) FROM subtasks s WHERE s.task_id = t.id AND s.done = 1) AS subtask_done,
+                   (SELECT COUNT(*) FROM comments c WHERE c.task_id = t.id) AS comment_count
+            FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id
+            WHERE t.board_id = ? AND t.archived = ?
+            ORDER BY t.column_name, t.sort_order ASC, t.id ASC
             """,
             (board_id, 1 if archived else 0),
         ).fetchall()
@@ -432,10 +459,11 @@ def create_task(owner_id: int, board_id: int, data: dict) -> int | None:
         cur = conn.execute(
             """INSERT INTO tasks
                (owner_id, board_id, column_name, text, description, priority, tags, due_date,
-                sort_order, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                assignee_id, sort_order, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (owner_id, board_id, column, data.get("text", ""), data.get("description", ""),
-             data.get("priority", "Medium"), tags, data.get("due_date", ""), order, now, now),
+             data.get("priority", "Medium"), tags, data.get("due_date", ""),
+             data.get("assignee_id"), order, now, now),
         )
         task_id = cur.lastrowid
         _log(conn, board_id, task_id, owner_id, "created", data.get("text", ""))
@@ -451,10 +479,10 @@ def update_task(task_id: int, user_id: int, data: dict) -> bool:
             return False
         conn.execute(
             """UPDATE tasks SET text=?, description=?, priority=?, tags=?, due_date=?,
-               column_name=?, updated_at=? WHERE id=?""",
+               column_name=?, assignee_id=?, updated_at=? WHERE id=?""",
             (data.get("text", ""), data.get("description", ""), data.get("priority", "Medium"),
              tags, data.get("due_date", ""), data.get("column_name", task["column_name"]),
-             _now(), task_id),
+             data.get("assignee_id"), _now(), task_id),
         )
         _log(conn, task["board_id"], task_id, user_id, "edited", data.get("text", ""))
     return True
@@ -550,6 +578,97 @@ def get_subscriptions_for_users(user_ids: list[int]) -> list[dict]:
             user_ids,
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ── Task detail: subtasks, comments, per-task activity ──────────────────────────
+
+def get_task_detail(task_id: int, user_id: int) -> dict | None:
+    with get_connection() as conn:
+        task = _accessible_task(conn, task_id, user_id)
+        if not task:
+            return None
+        detail = _task_to_dict(task)
+        detail["subtasks"] = [dict(r) | {"done": bool(r["done"])} for r in conn.execute(
+            "SELECT id, text, done, position FROM subtasks WHERE task_id = ? ORDER BY position, id",
+            (task_id,)).fetchall()]
+        detail["comments"] = [dict(r) for r in conn.execute(
+            "SELECT c.id, c.body, c.created_at, u.username FROM comments c "
+            "JOIN users u ON u.id = c.user_id WHERE c.task_id = ? ORDER BY c.id",
+            (task_id,)).fetchall()]
+        detail["activity"] = [dict(r) for r in conn.execute(
+            "SELECT a.action, a.detail, a.created_at, u.username FROM activity_log a "
+            "JOIN users u ON u.id = a.user_id WHERE a.task_id = ? ORDER BY a.id DESC LIMIT 30",
+            (task_id,)).fetchall()]
+    return detail
+
+
+def _access_via_task(conn, task_id, user_id):
+    return _accessible_task(conn, task_id, user_id)
+
+
+def add_subtask(task_id: int, user_id: int, text: str) -> int | None:
+    with get_connection() as conn:
+        if not _accessible_task(conn, task_id, user_id):
+            return None
+        pos = conn.execute(
+            "SELECT COALESCE(MAX(position), -1) + 1 AS n FROM subtasks WHERE task_id = ?", (task_id,)
+        ).fetchone()["n"]
+        cur = conn.execute(
+            "INSERT INTO subtasks (task_id, text, position, created_at) VALUES (?,?,?,?)",
+            (task_id, text.strip(), pos, _now()),
+        )
+        return cur.lastrowid
+
+
+def update_subtask(subtask_id: int, user_id: int, text: str | None, done: bool | None) -> bool:
+    with get_connection() as conn:
+        row = conn.execute("SELECT task_id FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
+        if not row or not _accessible_task(conn, row["task_id"], user_id):
+            return False
+        if text is not None:
+            conn.execute("UPDATE subtasks SET text = ? WHERE id = ?", (text.strip(), subtask_id))
+        if done is not None:
+            conn.execute("UPDATE subtasks SET done = ? WHERE id = ?", (1 if done else 0, subtask_id))
+    return True
+
+
+def delete_subtask(subtask_id: int, user_id: int) -> bool:
+    with get_connection() as conn:
+        row = conn.execute("SELECT task_id FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
+        if not row or not _accessible_task(conn, row["task_id"], user_id):
+            return False
+        conn.execute("DELETE FROM subtasks WHERE id = ?", (subtask_id,))
+    return True
+
+
+def add_comment(task_id: int, user_id: int, body: str) -> int | None:
+    body = body.strip()
+    if not body:
+        return None
+    with get_connection() as conn:
+        if not _accessible_task(conn, task_id, user_id):
+            return None
+        cur = conn.execute(
+            "INSERT INTO comments (task_id, user_id, body, created_at) VALUES (?,?,?,?)",
+            (task_id, user_id, body, _now()),
+        )
+        return cur.lastrowid
+
+
+def delete_comment(comment_id: int, user_id: int) -> bool:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT c.user_id, t.board_id FROM comments c JOIN tasks t ON t.id = c.task_id "
+            "WHERE c.id = ?", (comment_id,)).fetchone()
+        if not row:
+            return False
+        board = _board_access(conn, row["board_id"], user_id) if row["board_id"] else None
+        if not board:
+            return False
+        if row["user_id"] != user_id and board["owner_id"] != user_id:
+            return False
+        conn.execute("DELETE FROM comments WHERE id = ?", (comment_id,))
+    return True
 
 
 def board_notify_user_ids(board_id: int, exclude: int | None = None) -> list[int]:

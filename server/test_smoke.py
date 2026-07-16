@@ -71,6 +71,33 @@ with c:
     check("bob can view its tasks", c.get(f"/api/boards/{b1}/tasks", headers=bob).status_code == 200)
     check("bob (member) can add a task", c.post(f"/api/boards/{b1}/tasks", headers=bob, json={"text": "Añadida por bob"}).status_code == 201)
 
+    # ── task detail: assign, subtasks, comments ──
+    print("task detail")
+    bob_id = c.get("/api/users", headers=hdr).json()[0]["id"]
+    c.put(f"/api/tasks/{tid}", headers=hdr, json={"text": "Comprar pintura", "column_name": "ToDo", "assignee_id": bob_id})
+    detail = c.get(f"/api/tasks/{tid}", headers=hdr).json()
+    check("assignee stored", detail["assignee_id"] == bob_id)
+    tasks_view = c.get(f"/api/boards/{b1}/tasks", headers=hdr).json()
+    check("assignee username on board", any(t.get("assignee_username") == "bob" for col in tasks_view.values() for t in col))
+
+    s1 = c.post(f"/api/tasks/{tid}/subtasks", headers=hdr, json={"text": "Comprar rodillo"}).json()["id"]
+    c.post(f"/api/tasks/{tid}/subtasks", headers=hdr, json={"text": "Tapar muebles"})
+    check("subtask toggle done", c.put(f"/api/subtasks/{s1}", headers=hdr, json={"done": True}).status_code == 200)
+    detail = c.get(f"/api/tasks/{tid}", headers=hdr).json()
+    check("2 subtasks, 1 done", len(detail["subtasks"]) == 2 and sum(s["done"] for s in detail["subtasks"]) == 1)
+    tasks_view = c.get(f"/api/boards/{b1}/tasks", headers=hdr).json()
+    tcard = next(t for col in tasks_view.values() for t in col if t["id"] == tid)
+    check("board card subtask counts", tcard["subtask_total"] == 2 and tcard["subtask_done"] == 1)
+
+    cid_alice = c.post(f"/api/tasks/{tid}/comments", headers=hdr, json={"body": "¡Manos a la obra!"}).json()["id"]
+    cid_bob = c.post(f"/api/tasks/{tid}/comments", headers=bob, json={"body": "Voy yo"}).json()["id"]
+    detail = c.get(f"/api/tasks/{tid}", headers=hdr).json()
+    check("2 comments with authors", len(detail["comments"]) == 2 and detail["comments"][0]["username"] == "alice")
+    check("member cannot delete others' comment",
+          c.delete(f"/api/comments/{cid_alice}", headers=bob).status_code == 403)
+    check("board owner can delete any comment",
+          c.delete(f"/api/comments/{cid_bob}", headers=hdr).status_code == 200)
+
     # ── push subscription ──
     print("push")
     check("public key endpoint", c.get("/api/push/public-key").status_code == 200)

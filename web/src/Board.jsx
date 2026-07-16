@@ -63,8 +63,20 @@ export default function Board({ user, onLogout }) {
   const [showActivity, setShowActivity] = useState(false);
   const [error, setError] = useState("");
   const [bg, setBg] = useState(readBg);
+  const [query, setQuery] = useState("");
+  const [fPrio, setFPrio] = useState("");
+  const [fAssignee, setFAssignee] = useState("");
 
   const active = boards.find((b) => b.id === activeId) || null;
+  const filtering = !!(query || fPrio || fAssignee);
+
+  function matches(t) {
+    if (query && !`${t.text} ${t.description} ${(t.tags || []).join(" ")}`.toLowerCase().includes(query.toLowerCase()))
+      return false;
+    if (fPrio && t.priority !== fPrio) return false;
+    if (fAssignee && String(t.assignee_id ?? "") !== fAssignee) return false;
+    return true;
+  }
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -212,13 +224,31 @@ export default function Board({ user, onLogout }) {
         </div>
       </div>
 
+      {view === "board" && (
+        <div className="filter-bar">
+          <input className="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="🔍 Buscar tareas…" />
+          <select value={fPrio} onChange={(e) => setFPrio(e.target.value)}>
+            <option value="">Prioridad: todas</option>
+            <option value="High">Alta</option>
+            <option value="Medium">Media</option>
+            <option value="Low">Baja</option>
+          </select>
+          <select value={fAssignee} onChange={(e) => setFAssignee(e.target.value)}>
+            <option value="">Asignado: todos</option>
+            <option value={String(user.id)}>@{user.username} (yo)</option>
+            {users.map((u) => <option key={u.id} value={String(u.id)}>@{u.username}</option>)}
+          </select>
+          {filtering && <button className="link" onClick={() => { setQuery(""); setFPrio(""); setFAssignee(""); }}>Limpiar</button>}
+        </div>
+      )}
+
       <div className="board-scroll" style={bgStyle(bg)}>
         {view === "board" ? (
           <DndContext sensors={sensors} collisionDetection={closestCorners} onDragOver={onDragOver} onDragEnd={onDragEnd}>
             <div className="board-grid">
               {COLUMNS.map((col) => (
                 <Column key={col.key} col={col} tasks={board[col.key] || []}
-                  currentUserId={user.id}
+                  currentUserId={user.id} matches={matches}
                   onAdd={() => setEditing({ column_name: col.key })}
                   onOpen={setEditing}
                   onArchive={(id) => act(api.archiveTask(id))} />
@@ -231,7 +261,7 @@ export default function Board({ user, onLogout }) {
       </div>
 
       {editing && (
-        <TaskModal task={editing}
+        <TaskModal task={editing} users={users} currentUser={user}
           canDelete={editing.id != null && (editing.owner_id === user.id || active?.is_owner)}
           canArchive={editing.id != null}
           onClose={() => setEditing(null)} onSave={handleSave}
@@ -251,18 +281,20 @@ export default function Board({ user, onLogout }) {
   );
 }
 
-function Column({ col, tasks, currentUserId, onAdd, onOpen, onArchive }) {
+function Column({ col, tasks, currentUserId, matches, onAdd, onOpen, onArchive }) {
   const { setNodeRef, isOver } = useDroppable({ id: col.key });
+  const visibleCount = tasks.filter(matches).length;
   return (
     <section className="board-col">
       <div className="col-head" style={{ "--accent": col.accent }}>
         <span className="col-title">{col.label}</span>
-        <span className="col-count">{tasks.length}</span>
+        <span className="col-count">{visibleCount}</span>
       </div>
       <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
         <div ref={setNodeRef} className={`col-body${isOver ? " drop-over" : ""}`}>
           {tasks.map((task) => (
-            <SortableCard key={task.id} task={task} isOwner={task.owner_id === currentUserId}
+            <SortableCard key={task.id} task={task} hidden={!matches(task)}
+              isOwner={task.owner_id === currentUserId}
               onClick={() => onOpen(task)} onArchive={() => onArchive(task.id)} />
           ))}
           <button className="add-inline" onClick={onAdd}>+ Añadir</button>
@@ -272,13 +304,23 @@ function Column({ col, tasks, currentUserId, onAdd, onOpen, onArchive }) {
   );
 }
 
-function SortableCard({ task, isOwner, onClick, onArchive }) {
+function initials(name) {
+  return (name || "?").slice(0, 2).toUpperCase();
+}
+function avatarColor(name) {
+  const palette = ["#e0658a", "#5b8cff", "#3ecf8e", "#f0a43a", "#8b5cf6", "#ff8a5c"];
+  let h = 0;
+  for (const ch of name || "") h = (h + ch.charCodeAt(0)) % palette.length;
+  return palette[h];
+}
+
+function SortableCard({ task, hidden, isOwner, onClick, onArchive }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
   const prio = (task.priority || "").toLowerCase();
   return (
     <article ref={setNodeRef} style={style} {...attributes} {...listeners}
-      className={`card card-${task.column_name}`} onClick={onClick}
+      className={`card card-${task.column_name}${hidden ? " card-hidden" : ""}`} onClick={onClick}
       onKeyDown={(e) => e.key === "Enter" && onClick()}>
       <button className="card-archive" title="Archivar"
         onPointerDown={(e) => e.stopPropagation()}
@@ -286,9 +328,17 @@ function SortableCard({ task, isOwner, onClick, onArchive }) {
       <p className="card-text">{task.text}</p>
       <div className="card-meta">
         {task.priority && <span className={`prio prio-${prio}`}>{prioLabel(task.priority)}</span>}
+        {task.subtask_total > 0 && (
+          <span className="badge-mini" title="Subtareas">☑ {task.subtask_done}/{task.subtask_total}</span>
+        )}
+        {task.comment_count > 0 && <span className="badge-mini" title="Comentarios">💬 {task.comment_count}</span>}
         {task.tags?.map((t) => <span className="chip" key={t}>{t}</span>)}
         {task.due_date && <span className="due">📅 {task.due_date}</span>}
-        {!isOwner && <span className="shared" title="De otro usuario">👤</span>}
+        {task.assignee_username && (
+          <span className="avatar" style={{ background: avatarColor(task.assignee_username) }} title={`@${task.assignee_username}`}>
+            {initials(task.assignee_username)}
+          </span>
+        )}
       </div>
     </article>
   );
