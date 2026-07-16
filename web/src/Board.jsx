@@ -216,6 +216,8 @@ export default function Board({ user, onLogout }) {
       <div className="board-bar">
         <div className="seg">
           <button className={view === "board" ? "on" : ""} onClick={() => setView("board")}>Tablero</button>
+          <button className={view === "list" ? "on" : ""} onClick={() => setView("list")}>Lista</button>
+          <button className={view === "calendar" ? "on" : ""} onClick={() => setView("calendar")}>Calendario</button>
           <button className={view === "archive" ? "on" : ""} onClick={() => setView("archive")}>Archivo</button>
         </div>
         <div className="board-bar-right">
@@ -224,7 +226,7 @@ export default function Board({ user, onLogout }) {
         </div>
       </div>
 
-      {view === "board" && (
+      {view !== "archive" && (
         <div className="filter-bar">
           <input className="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="🔍 Buscar tareas…" />
           <select value={fPrio} onChange={(e) => setFPrio(e.target.value)}>
@@ -255,6 +257,10 @@ export default function Board({ user, onLogout }) {
               ))}
             </div>
           </DndContext>
+        ) : view === "list" ? (
+          <ListView board={board} matches={matches} onOpen={setEditing} />
+        ) : view === "calendar" ? (
+          <CalendarView board={board} matches={matches} onOpen={setEditing} />
         ) : (
           <ArchiveList items={archived} onRestore={(id) => act(api.restoreTask(id))} onDelete={(id) => act(api.deleteTask(id))} />
         )}
@@ -361,6 +367,90 @@ function ArchiveList({ items, onRestore, onDelete }) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function ListView({ board, matches, onOpen }) {
+  const groups = COLUMNS.map((col) => ({ col, items: (board[col.key] || []).filter(matches) }))
+    .filter((g) => g.items.length);
+  if (!groups.length) return <div className="empty">Sin tareas que coincidan con el filtro.</div>;
+  return (
+    <div className="list-view">
+      {groups.map(({ col, items }) => (
+        <div className="list-group" key={col.key}>
+          <div className="list-group-h"><span className="dot" style={{ background: col.accent }} />{col.label}<span className="count">{items.length}</span></div>
+          {items.map((t) => (
+            <button className="list-row" key={t.id} onClick={() => onOpen(t)}>
+              <span className="list-text">{t.text}</span>
+              <span className="list-meta">
+                {t.priority && <span className={`prio prio-${t.priority.toLowerCase()}`}>{prioLabel(t.priority)}</span>}
+                {t.subtask_total > 0 && <span className="badge-mini">☑ {t.subtask_done}/{t.subtask_total}</span>}
+                {t.comment_count > 0 && <span className="badge-mini">💬 {t.comment_count}</span>}
+                {t.due_date && <span className="due">📅 {t.due_date}</span>}
+                {t.assignee_username && <span className="avatar" style={{ background: avatarColor(t.assignee_username) }}>{initials(t.assignee_username)}</span>}
+              </span>
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const WEEKDAYS = ["L", "M", "X", "J", "V", "S", "D"];
+const pad2 = (n) => String(n).padStart(2, "0");
+
+function CalendarView({ board, matches, onOpen }) {
+  const today = new Date();
+  const [cur, setCur] = useState({ y: today.getFullYear(), m: today.getMonth() });
+
+  const all = [...board.ToDo, ...board.Doing, ...board.Done].filter(matches);
+  const byDate = {};
+  const noDate = [];
+  for (const t of all) {
+    if (t.due_date) (byDate[t.due_date] ||= []).push(t);
+    else noDate.push(t);
+  }
+
+  const first = new Date(cur.y, cur.m, 1);
+  const startDow = (first.getDay() + 6) % 7; // Monday-first
+  const daysInMonth = new Date(cur.y, cur.m + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < startDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  const title = first.toLocaleDateString("es-ES", { month: "long", year: "numeric" });
+  const dayKey = (d) => `${cur.y}-${pad2(cur.m + 1)}-${pad2(d)}`;
+  const todayKey = `${today.getFullYear()}-${pad2(today.getMonth() + 1)}-${pad2(today.getDate())}`;
+  const shift = (n) => setCur(({ y, m }) => { const d = new Date(y, m + n, 1); return { y: d.getFullYear(), m: d.getMonth() }; });
+
+  return (
+    <div className="cal">
+      <div className="cal-head">
+        <button className="ghost" onClick={() => shift(-1)}>‹</button>
+        <span className="cal-title">{title}</span>
+        <button className="ghost" onClick={() => shift(1)}>›</button>
+        <button className="ghost" onClick={() => setCur({ y: today.getFullYear(), m: today.getMonth() })}>Hoy</button>
+      </div>
+      <div className="cal-grid cal-dow">{WEEKDAYS.map((d) => <div key={d} className="cal-dow-cell">{d}</div>)}</div>
+      <div className="cal-grid">
+        {cells.map((d, i) => (
+          <div key={i} className={`cal-cell${d ? "" : " empty-cell"}${d && dayKey(d) === todayKey ? " today" : ""}`}>
+            {d && <span className="cal-day">{d}</span>}
+            {d && (byDate[dayKey(d)] || []).map((t) => (
+              <button key={t.id} className={`cal-task cal-${t.column_name}`} onClick={() => onOpen(t)} title={t.text}>{t.text}</button>
+            ))}
+          </div>
+        ))}
+      </div>
+      {noDate.length > 0 && (
+        <div className="cal-nodate">
+          <span className="lbl">Sin fecha</span>
+          {noDate.map((t) => (
+            <button key={t.id} className={`cal-task cal-${t.column_name}`} onClick={() => onOpen(t)}>{t.text}</button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
