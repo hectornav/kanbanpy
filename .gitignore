@@ -50,3 +50,6 @@ web/dist/
 # Debian packaging build tree
 kanban_app/debian/
 *.deb
+
+# Local secrets
+.env
