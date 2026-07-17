@@ -120,6 +120,12 @@ with c:
     check("reminder processed due-today task", n >= 1)
     check("not reminded twice for same day", reminders.run_due_reminders(today) == 0)
 
+    # ── AI planner (unconfigured in tests) ──
+    print("ai planner")
+    check("ai status endpoint", c.get("/api/ai/status").json()["enabled"] is False)
+    check("ai-plan 503 when unconfigured",
+          c.post(f"/api/boards/{b1}/ai-plan", headers=hdr, json={"idea": "Build a blog"}).status_code == 503)
+
     # ── push subscription ──
     print("push")
     check("public key endpoint", c.get("/api/push/public-key").status_code == 200)

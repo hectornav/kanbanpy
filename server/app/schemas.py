@@ -69,6 +69,10 @@ class CommentIn(BaseModel):
     body: str = Field(min_length=1, max_length=2000)
 
 
+class AiPlanRequest(BaseModel):
+    idea: str = Field(min_length=3, max_length=2000)
+
+
 class MoveRequest(BaseModel):
     column_name: str
     sort_order: int | None = None

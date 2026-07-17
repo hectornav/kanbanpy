@@ -378,6 +378,11 @@ def delete_board(board_id: int, owner_id: int) -> bool:
     return True
 
 
+def can_access_board(user_id: int, board_id: int) -> bool:
+    with get_connection() as conn:
+        return _board_access(conn, board_id, user_id) is not None
+
+
 def get_board_members(board_id: int) -> list[int]:
     with get_connection() as conn:
         rows = conn.execute("SELECT user_id FROM board_members WHERE board_id = ?", (board_id,)).fetchall()

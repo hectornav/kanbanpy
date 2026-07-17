@@ -58,7 +58,12 @@ const T = {
     "bs.confirmDelete": "¿Eliminar el tablero \"{name}\" y todas sus tareas?",
     "act.title": "Actividad", "act.empty": "Sin actividad todavía.",
     "act.created": "creó", "act.edited": "editó", "act.moved": "movió a", "act.archived": "archivó",
-    "act.restored": "restauró", "act.deleted": "eliminó"
+    "act.restored": "restauró", "act.deleted": "eliminó",
+    "ai.button": "✨ Planificar con IA", "ai.title": "Planificar con IA",
+    "ai.desc": "Describe tu proyecto y la IA lo desglosará en tareas siguiendo buenas prácticas.",
+    "ai.placeholder": "Ej.: Montar una tienda online de café artesano con pagos y envíos…",
+    "ai.generate": "Generar tareas", "ai.generating": "Generando…",
+    "ai.created": "{n} tareas creadas ✨"
   },
   ca: {
     "brand": "Kanbanpy Pro",
@@ -110,7 +115,12 @@ const T = {
     "bs.confirmDelete": "Vols eliminar el tauler \"{name}\" i totes les seves tasques?",
     "act.title": "Activitat", "act.empty": "Encara no hi ha activitat.",
     "act.created": "va crear", "act.edited": "va editar", "act.moved": "va moure a", "act.archived": "va arxivar",
-    "act.restored": "va restaurar", "act.deleted": "va eliminar"
+    "act.restored": "va restaurar", "act.deleted": "va eliminar",
+    "ai.button": "✨ Planifica amb IA", "ai.title": "Planifica amb IA",
+    "ai.desc": "Descriu el teu projecte i la IA el desglossarà en tasques seguint bones pràctiques.",
+    "ai.placeholder": "Ex.: Muntar una botiga en línia de cafè artesà amb pagaments i enviaments…",
+    "ai.generate": "Genera tasques", "ai.generating": "Generant…",
+    "ai.created": "{n} tasques creades ✨"
   },
   en: {
     "brand": "Kanbanpy Pro",
@@ -162,7 +172,12 @@ const T = {
     "bs.confirmDelete": "Delete board \"{name}\" and all its tasks?",
     "act.title": "Activity", "act.empty": "No activity yet.",
     "act.created": "created", "act.edited": "edited", "act.moved": "moved to", "act.archived": "archived",
-    "act.restored": "restored", "act.deleted": "deleted"
+    "act.restored": "restored", "act.deleted": "deleted",
+    "ai.button": "✨ Plan with AI", "ai.title": "Plan with AI",
+    "ai.desc": "Describe your project and AI will break it into tasks following best practices.",
+    "ai.placeholder": "e.g. Launch an online store for artisan coffee with payments and shipping…",
+    "ai.generate": "Generate tasks", "ai.generating": "Generating…",
+    "ai.created": "{n} tasks created ✨"
   }
 };
 

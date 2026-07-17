@@ -12,6 +12,7 @@ import { useT, LANGS } from "./i18n.jsx";
 import TaskModal from "./TaskModal.jsx";
 import BoardSettingsModal from "./BoardSettingsModal.jsx";
 import ActivityPanel from "./ActivityPanel.jsx";
+import AiPlanModal from "./AiPlanModal.jsx";
 
 const COLUMNS = [
   { key: "ToDo", accent: "var(--todo)" },
@@ -63,6 +64,9 @@ export default function Board({ user, onLogout }) {
   const [editing, setEditing] = useState(null);
   const [settingsFor, setSettingsFor] = useState(null);
   const [showActivity, setShowActivity] = useState(false);
+  const [showAi, setShowAi] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [bg, setBg] = useState(readBg);
   const [query, setQuery] = useState("");
@@ -114,6 +118,7 @@ export default function Board({ user, onLogout }) {
   useEffect(() => {
     loadBoards();
     api.users().then(setUsers).catch(() => {});
+    api.aiStatus().then((s) => setAiEnabled(s.enabled)).catch(() => {});
   }, [loadBoards]);
 
   useEffect(() => {
@@ -215,6 +220,7 @@ export default function Board({ user, onLogout }) {
       </nav>
 
       {error && <div className="banner" onClick={() => setError("")}>{error} · {t("board.closeBanner")}</div>}
+      {notice && <div className="banner ok-banner" onClick={() => setNotice("")}>{notice}</div>}
 
       <div className="board-bar">
         <div className="seg">
@@ -224,6 +230,7 @@ export default function Board({ user, onLogout }) {
           <button className={view === "archive" ? "on" : ""} onClick={() => setView("archive")}>{t("nav.archive")}</button>
         </div>
         <div className="board-bar-right">
+          {view === "board" && aiEnabled && <button className="ghost" onClick={() => setShowAi(true)}>{t("ai.button")}</button>}
           {view === "board" && <button className="ghost" onClick={() => setEditing({ column_name: "ToDo" })}>{t("nav.newTask")}</button>}
           {active?.is_owner && <button className="ghost" onClick={() => setSettingsFor({ ...active })} title={t("nav.boardSettings")}>⚙️</button>}
         </div>
@@ -285,6 +292,12 @@ export default function Board({ user, onLogout }) {
       )}
       {showActivity && active && (
         <ActivityPanel boardId={active.id} boardName={active.name} onClose={() => setShowActivity(false)} />
+      )}
+      {showAi && activeId && (
+        <AiPlanModal boardId={activeId}
+          onClose={() => setShowAi(false)}
+          onError={(m) => { setShowAi(false); setError(m); }}
+          onDone={async (n) => { setShowAi(false); setNotice(t("ai.created", { n })); await loadTasks(); }} />
       )}
     </div>
   );

@@ -82,6 +82,10 @@ export const api = {
   addComment: (id, body) => request(`/tasks/${id}/comments`, { method: "POST", body: { body } }),
   deleteComment: (cid) => request(`/comments/${cid}`, { method: "DELETE" }),
 
+  // AI planner
+  aiStatus: () => request("/ai/status"),
+  aiPlan: (boardId, idea) => request(`/boards/${boardId}/ai-plan`, { method: "POST", body: { idea } }),
+
   // Push notifications
   pushPublicKey: () => request("/push/public-key"),
   pushSubscribe: (subscription) => request("/push/subscribe", { method: "POST", body: subscription }),

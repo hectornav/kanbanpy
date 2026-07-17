@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     # How often the due-date reminder sweep runs (seconds).
     reminder_interval_seconds: int = 1800
 
+    # AI planner (Anthropic). Key stays server-side, never sent to the browser.
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-opus-4-8"
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
