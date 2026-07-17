@@ -13,12 +13,6 @@ server/kanban.db-*
 web/node_modules/
 web/dist/
 
-# Legacy desktop build artifacts (not needed by the server image)
-build/
-dist/
-kanban_app/debian/
-*.deb
-
 # Local data / secrets
 .env
 data/

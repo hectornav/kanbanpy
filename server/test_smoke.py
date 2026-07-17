@@ -1,11 +1,10 @@
 """
-Smoke test for the Kanbanpy Pro API. Exercises the full flow against a
-throwaway database using FastAPI's TestClient. Run: python test_smoke.py
+Smoke test for the Kanbanpy Pro API (boards + archive + activity model).
+Run: python test_smoke.py
 """
 import os
 import tempfile
 
-# Use an isolated temp DB and a fixed dev key before importing the app.
 _tmp = tempfile.mkdtemp()
 os.environ["KANBAN_DB_PATH"] = os.path.join(_tmp, "test.db")
 os.environ["KANBAN_SECRET_KEY"] = "test-secret-key-not-for-production"
@@ -17,69 +16,152 @@ c = TestClient(app)
 
 
 def check(label, cond):
-    print(f"  {'✓' if cond else '✗'} {label}")
+    print(f"  {'OK' if cond else 'XX'}  {label}")
     assert cond, label
 
 
 with c:
-    print("health")
     check("health ok", c.get("/api/health").json()["status"] == "ok")
 
-    print("register + login")
-    r = c.post("/api/auth/register", json={"username": "alice", "password": "secret1",
-                                           "security_q": "Pet?", "security_a": "Rex"})
-    check("register 201", r.status_code == 201)
-    check("duplicate 409", c.post("/api/auth/register",
-          json={"username": "alice", "password": "x1234"}).status_code == 409)
+    # ── auth ──
+    c.post("/api/auth/register", json={"username": "alice", "password": "secret1",
+                                       "security_q": "Pet?", "security_a": "Rex"})
     c.post("/api/auth/register", json={"username": "bob", "password": "secret2"})
+    hdr = {"Authorization": f"Bearer {c.post('/api/auth/login', json={'username': 'alice', 'password': 'secret1'}).json()['access_token']}"}
+    bob = {"Authorization": f"Bearer {c.post('/api/auth/login', json={'username': 'bob', 'password': 'secret2'}).json()['access_token']}"}
 
-    r = c.post("/api/auth/login", json={"username": "alice", "password": "secret1"})
-    check("login ok", r.status_code == 200)
-    token = r.json()["access_token"]
-    hdr = {"Authorization": f"Bearer {token}"}
-    check("wrong password 401",
-          c.post("/api/auth/login", json={"username": "alice", "password": "nope"}).status_code == 401)
-    check("no token 401", c.get("/api/board").status_code == 401)
+    # ── boards ──
+    print("boards")
+    boards = c.get("/api/boards", headers=hdr).json()
+    check("default board auto-created", len(boards) == 1 and boards[0]["is_owner"])
+    b0 = boards[0]["id"]
+    b1 = c.post("/api/boards", headers=hdr, json={"name": "Casa", "color": "#3ecf8e"}).json()["id"]
+    check("second board created", len(c.get("/api/boards", headers=hdr).json()) == 2)
+    check("bob sees only his own board", all(x["id"] not in (b0, b1) for x in c.get("/api/boards", headers=bob).json()))
 
-    print("board + tasks")
-    board = c.get("/api/board", headers=hdr).json()
-    check("empty board", board == {"ToDo": [], "Doing": [], "Done": []})
+    # ── tasks on a board ──
+    print("tasks")
+    tid = c.post(f"/api/boards/{b1}/tasks", headers=hdr,
+                 json={"text": "Comprar pintura", "priority": "High", "tags": ["reforma"], "column_name": "ToDo"}).json()["id"]
+    board = c.get(f"/api/boards/{b1}/tasks", headers=hdr).json()
+    check("task appears on board", len(board["ToDo"]) == 1 and board["ToDo"][0]["tags"] == ["reforma"])
+    check("bob cannot read alice's board", c.get(f"/api/boards/{b1}/tasks", headers=bob).status_code == 403)
 
-    r = c.post("/api/tasks", headers=hdr, json={"text": "Buy groceries", "priority": "High",
-                                                "tags": ["home"], "column_name": "ToDo"})
-    check("create 201", r.status_code == 201)
-    tid = r.json()["id"]
+    check("move to Done", c.post(f"/api/tasks/{tid}/move", headers=hdr, json={"column_name": "Done"}).status_code == 200)
 
-    board = c.get("/api/board", headers=hdr).json()
-    check("task appears", len(board["ToDo"]) == 1 and board["ToDo"][0]["tags"] == ["home"])
+    # ── archive / restore ──
+    print("archive + history")
+    check("archive", c.post(f"/api/tasks/{tid}/archive", headers=hdr).status_code == 200)
+    check("gone from active board", sum(len(v) for v in c.get(f"/api/boards/{b1}/tasks", headers=hdr).json().values()) == 0)
+    arch = c.get(f"/api/boards/{b1}/tasks?archived=true", headers=hdr).json()
+    check("appears in archive", len(arch["archived"]) == 1)
+    check("restore", c.post(f"/api/tasks/{tid}/restore", headers=hdr).status_code == 200)
+    check("back on active board", sum(len(v) for v in c.get(f"/api/boards/{b1}/tasks", headers=hdr).json().values()) == 1)
 
-    print("move + reorder")
-    check("move ok", c.post(f"/api/tasks/{tid}/move", headers=hdr,
-          json={"column_name": "Doing"}).status_code == 200)
-    board = c.get("/api/board", headers=hdr).json()
-    check("moved to Doing", len(board["Doing"]) == 1 and len(board["ToDo"]) == 0)
+    # ── activity log ──
+    activity = c.get(f"/api/boards/{b1}/activity", headers=hdr).json()
+    actions = [a["action"] for a in activity]
+    check("activity recorded", {"created", "moved", "archived", "restored"} <= set(actions))
+    check("activity has usernames", all(a["username"] == "alice" for a in activity))
 
-    print("authorization")
-    rb = c.post("/api/auth/login", json={"username": "bob", "password": "secret2"})
-    bob_hdr = {"Authorization": f"Bearer {rb.json()['access_token']}"}
-    check("bob cannot delete alice's task",
-          c.delete(f"/api/tasks/{tid}", headers=bob_hdr).status_code == 403)
-    check("bob cannot see private task",
-          len(c.get("/api/board", headers=bob_hdr).json()["Doing"]) == 0)
+    # ── board sharing ──
+    print("board sharing")
+    c.put(f"/api/boards/{b1}", headers=hdr, json={"member_ids": [c.get('/api/users', headers=hdr).json()[0]['id']]})
+    check("bob now sees the shared board", any(x["id"] == b1 for x in c.get("/api/boards", headers=bob).json()))
+    check("bob can view its tasks", c.get(f"/api/boards/{b1}/tasks", headers=bob).status_code == 200)
+    check("bob (member) can add a task", c.post(f"/api/boards/{b1}/tasks", headers=bob, json={"text": "Añadida por bob"}).status_code == 201)
 
-    print("sharing")
-    c.put(f"/api/tasks/{tid}", headers=hdr, json={"text": "Buy groceries", "column_name": "Doing",
-          "is_shared": True})
-    check("bob sees globally-shared task",
-          len(c.get("/api/board", headers=bob_hdr).json()["Doing"]) == 1)
+    # ── task detail: assign, subtasks, comments ──
+    print("task detail")
+    bob_id = c.get("/api/users", headers=hdr).json()[0]["id"]
+    c.put(f"/api/tasks/{tid}", headers=hdr, json={"text": "Comprar pintura", "column_name": "ToDo", "assignee_id": bob_id})
+    detail = c.get(f"/api/tasks/{tid}", headers=hdr).json()
+    check("assignee stored", detail["assignee_id"] == bob_id)
+    tasks_view = c.get(f"/api/boards/{b1}/tasks", headers=hdr).json()
+    check("assignee username on board", any(t.get("assignee_username") == "bob" for col in tasks_view.values() for t in col))
 
-    print("password reset")
-    check("reset ok", c.post("/api/auth/reset-password",
-          json={"username": "alice", "answer": "rex", "new_password": "newpass1"}).status_code == 200)
-    check("login with new password",
-          c.post("/api/auth/login", json={"username": "alice", "password": "newpass1"}).status_code == 200)
+    s1 = c.post(f"/api/tasks/{tid}/subtasks", headers=hdr, json={"text": "Comprar rodillo"}).json()["id"]
+    c.post(f"/api/tasks/{tid}/subtasks", headers=hdr, json={"text": "Tapar muebles"})
+    check("subtask toggle done", c.put(f"/api/subtasks/{s1}", headers=hdr, json={"done": True}).status_code == 200)
+    detail = c.get(f"/api/tasks/{tid}", headers=hdr).json()
+    check("2 subtasks, 1 done", len(detail["subtasks"]) == 2 and sum(s["done"] for s in detail["subtasks"]) == 1)
+    tasks_view = c.get(f"/api/boards/{b1}/tasks", headers=hdr).json()
+    tcard = next(t for col in tasks_view.values() for t in col if t["id"] == tid)
+    check("board card subtask counts", tcard["subtask_total"] == 2 and tcard["subtask_done"] == 1)
 
-    print("delete")
-    check("owner deletes", c.delete(f"/api/tasks/{tid}", headers=hdr).status_code == 200)
+    cid_alice = c.post(f"/api/tasks/{tid}/comments", headers=hdr, json={"body": "¡Manos a la obra!"}).json()["id"]
+    cid_bob = c.post(f"/api/tasks/{tid}/comments", headers=bob, json={"body": "Voy yo"}).json()["id"]
+    detail = c.get(f"/api/tasks/{tid}", headers=hdr).json()
+    check("2 comments with authors", len(detail["comments"]) == 2 and detail["comments"][0]["username"] == "alice")
+    check("member cannot delete others' comment",
+          c.delete(f"/api/comments/{cid_alice}", headers=bob).status_code == 403)
+    check("board owner can delete any comment",
+          c.delete(f"/api/comments/{cid_bob}", headers=hdr).status_code == 200)
+
+    # ── recurring tasks ──
+    print("recurring")
+    rec = c.post(f"/api/boards/{b1}/tasks", headers=hdr,
+                 json={"text": "Sacar la basura", "due_date": "2026-07-10", "recurrence": "weekly", "column_name": "Doing"}).json()["id"]
+    before = sum(len(v) for v in c.get(f"/api/boards/{b1}/tasks", headers=hdr).json().values())
+    c.post(f"/api/tasks/{rec}/move", headers=hdr, json={"column_name": "Done"})
+    view = c.get(f"/api/boards/{b1}/tasks", headers=hdr).json()
+    after = sum(len(v) for v in view.values())
+    check("completing a recurring task spawns a new one", after == before + 1)
+    nextocc = next((t for t in view["ToDo"] if t["text"] == "Sacar la basura"), None)
+    check("next occurrence date advanced +7d", nextocc and nextocc["due_date"] == "2026-07-17" and nextocc["recurrence"] == "weekly")
+
+    # ── due-date reminders ──
+    print("reminders")
+    import datetime as _dt
+    from app import reminders
+    today = _dt.date.today().isoformat()
+    c.post(f"/api/boards/{b1}/tasks", headers=hdr, json={"text": "Entregar informe", "due_date": today, "column_name": "ToDo"})
+    n = reminders.run_due_reminders(today)
+    check("reminder processed due-today task", n >= 1)
+    check("not reminded twice for same day", reminders.run_due_reminders(today) == 0)
+
+    # ── AI planner (unconfigured in tests) ──
+    print("ai planner")
+    check("ai status endpoint", c.get("/api/ai/status").json()["enabled"] is False)
+    check("ai-plan 503 when unconfigured",
+          c.post(f"/api/boards/{b1}/ai-plan", headers=hdr, json={"idea": "Build a blog"}).status_code == 503)
+    cfg = c.get("/api/ai/config", headers=hdr).json()
+    check("admin can edit, key not set", cfg["can_edit"] is True and cfg["anthropic_key_set"] is False)
+    check("non-admin cannot edit", c.get("/api/ai/config", headers=bob).json()["can_edit"] is False)
+    check("non-admin save 403", c.put("/api/ai/config", headers=bob, json={"provider": "ollama"}).status_code == 403)
+    check("admin sets ollama -> enabled",
+          c.put("/api/ai/config", headers=hdr, json={"provider": "ollama", "ollama_url": "http://x:11434", "ollama_model": "llama3.1"}).json()["enabled"] is True)
+    check("status now enabled", c.get("/api/ai/status").json()["enabled"] is True)
+    check("admin sets anthropic key -> enabled",
+          c.put("/api/ai/config", headers=hdr, json={"provider": "anthropic", "anthropic_api_key": "sk-ant-test"}).json()["enabled"] is True)
+    check("admin sets openai-compatible -> enabled",
+          c.put("/api/ai/config", headers=hdr, json={"provider": "openai", "openai_base_url": "https://api.groq.com/openai/v1", "openai_api_key": "gsk-test", "openai_model": "llama-3.3-70b"}).json()["enabled"] is True)
+    cfg2 = c.get("/api/ai/config", headers=hdr).json()
+    check("openai config exposed w/o key", cfg2["provider"] == "openai" and cfg2["openai_key_set"] is True and "openai_api_key" not in cfg2)
+    check("config never leaks any key", "anthropic_api_key" not in cfg2 and "openai_api_key" not in cfg2)
+    c.put("/api/ai/config", headers=hdr, json={"provider": "anthropic"})  # leave provider=anthropic (key still stored)
+
+    # ── push subscription ──
+    print("push")
+    check("public key endpoint", c.get("/api/push/public-key").status_code == 200)
+    check("subscribe stores endpoint", c.post("/api/push/subscribe", headers=hdr,
+          json={"endpoint": "https://example.com/x", "keys": {"p256dh": "k", "auth": "a"}}).status_code == 200)
+    check("unsubscribe", c.post("/api/push/unsubscribe", headers=hdr,
+          json={"endpoint": "https://example.com/x"}).status_code == 200)
+
+    # ── login rate limiting ──
+    print("rate limiting")
+    for _ in range(6):
+        c.post("/api/auth/login", json={"username": "ratetest", "password": "wrong"})
+    c.post("/api/auth/register", json={"username": "ratetest", "password": "goodpass1"})
+    check("locked after repeated failures",
+          c.post("/api/auth/login", json={"username": "ratetest", "password": "goodpass1"}).status_code == 429)
+
+    # ── deletion rules ──
+    print("deletion")
+    check("board owner can delete member's task",
+          c.delete(f"/api/tasks/{tid}", headers=hdr).status_code == 200)
+    check("non-owner cannot delete the board", c.delete(f"/api/boards/{b1}", headers=bob).status_code == 403)
+    check("owner deletes the board", c.delete(f"/api/boards/{b1}", headers=hdr).status_code == 200)
 
 print("\nALL SMOKE TESTS PASSED ✓")

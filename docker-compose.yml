@@ -20,6 +20,22 @@ services:
       # Lock CORS to your own origins once you know them; "*" is fine on a
       # private Tailscale network.
       KANBAN_CORS_ORIGINS: ${KANBAN_CORS_ORIGINS:-*}
+      # Web Push (optional). Generate with: cd server && python gen_vapid.py >> ../.env
+      KANBAN_VAPID_PUBLIC_KEY: ${KANBAN_VAPID_PUBLIC_KEY:-}
+      KANBAN_VAPID_PRIVATE_KEY: ${KANBAN_VAPID_PRIVATE_KEY:-}
+      KANBAN_VAPID_SUBJECT: ${KANBAN_VAPID_SUBJECT:-mailto:admin@kanbanpy.local}
+      # AI planner (optional). Provider: "anthropic" (cloud) or "ollama" (local).
+      KANBAN_AI_PROVIDER: ${KANBAN_AI_PROVIDER:-anthropic}
+      KANBAN_ANTHROPIC_API_KEY: ${KANBAN_ANTHROPIC_API_KEY:-}
+      KANBAN_ANTHROPIC_MODEL: ${KANBAN_ANTHROPIC_MODEL:-claude-opus-4-8}
+      KANBAN_OPENAI_BASE_URL: ${KANBAN_OPENAI_BASE_URL:-https://api.openai.com/v1}
+      KANBAN_OPENAI_API_KEY: ${KANBAN_OPENAI_API_KEY:-}
+      KANBAN_OPENAI_MODEL: ${KANBAN_OPENAI_MODEL:-gpt-4o-mini}
+      KANBAN_OLLAMA_URL: ${KANBAN_OLLAMA_URL:-http://host.docker.internal:11434}
+      KANBAN_OLLAMA_MODEL: ${KANBAN_OLLAMA_MODEL:-llama3.1}
+    # Lets the container reach an Ollama running on the NAS host.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # Persists kanban.db across rebuilds. Your data lives here.
       - kanban-data:/data

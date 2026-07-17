@@ -1,94 +1,74 @@
-# 📋 Kanbanpy Pro v2.0 — Hybrid (self-hosted)
+# 📋 Kanbanpy Pro
 
-**Kanbanpy Pro** is a premium task-management Kanban with an Apple-inspired dark
-UI. It now runs as a **hybrid, self-hosted stack** (architecture "Option C"):
+A premium, **self-hosted** Kanban with an Apple-inspired UI. One FastAPI backend
+serves a React **PWA** — install it on your phone, run it on your NAS, use it
+from every screen.
 
 ```
-server/   → FastAPI core: REST + WebSocket, JWT + argon2 auth, SQLite (WAL).
+server/   → FastAPI: REST + WebSocket (live sync), JWT + argon2 auth, SQLite (WAL).
             Also serves the built PWA, so one container is the whole app.
-web/      → React PWA (Vite): works in any browser, installable on mobile.
-kanban_app/ → the original PyQt6 app, now an optional native desktop client
-              that talks to the same API.
+web/      → React PWA (Vite): responsive, installable, offline-capable.
 ```
 
-One backend, two clients, all sharing the same data. Lives on your NAS,
-reachable from every screen.
+## ✨ Features
 
----
+- **Multiple boards**, drag & drop (touch-friendly), archive + activity history
+- **Task detail**: subtasks/checklist, comments, assignees, priorities, tags, due dates
+- **Views**: board, list, calendar · search + filters
+- **Recurring tasks** and **due-date reminders** (Web Push)
+- **3 themes** (Nocturne / Frost / Meridian) + customizable board background
+- **i18n**: Català · Español · English
+- **AI planner**: describe a project, get a structured task breakdown. Works with
+  **Claude**, any **OpenAI-compatible API** (OpenAI, Groq, OpenRouter, …), or a
+  local **Ollama** model — configured in-app (admin only), keys stay server-side
+- **Offline mode**: loads your last board without a connection; queues changes and
+  syncs on reconnect
 
-## 🚀 Run it on your NAS (Docker — recommended)
+## 🚀 Deploy on your NAS (Docker)
 
 ```bash
-# 1. Set your signing key
+# 1. Set a signing key
 cp .env.example .env
 python3 -c "import secrets; print('KANBAN_SECRET_KEY=' + secrets.token_hex(32))" >> .env
 
-# 2. Build once and start (npm install + PWA build happen inside the image)
+# 2. Build + run (npm install + PWA build happen inside the image)
 docker compose up -d --build
 
-# 3. Open it
-#    http://<nas-ip>:8000
+# 3. Open http://<nas-ip>:8000
 ```
 
-Your data persists in the `kanban-data` Docker volume across rebuilds.
+Data persists in the `kanban-data` Docker volume. `.env` is gitignored — never commit it.
 
-### 📱 Reach it from your phone, anywhere (Tailscale)
+### 📱 Reach it from anywhere (Tailscale)
 
-Install [Tailscale](https://tailscale.com) on the NAS host and on your phone,
-then open `http://<nas-hostname>.<tailnet>.ts.net:8000`. No open ports, no public
-domain, end-to-end encrypted. On the phone, use the browser's **"Add to Home
-Screen"** to install the PWA. A Tailscale sidecar option is documented in
-`docker-compose.yml`.
+Install [Tailscale](https://tailscale.com) on the NAS host and your phone, then open
+`http://<nas-hostname>.<tailnet>.ts.net:8000` — no open ports, end-to-end encrypted.
+On the phone, "Add to Home Screen" to install the PWA.
 
----
+### 🔔 Optional features
+
+- **Web Push**: `cd server && python gen_vapid.py >> ../.env`, then relaunch.
+- **AI planner**: configure it in-app (⚙ in the "Plan with AI" dialog) or via
+  `KANBAN_AI_PROVIDER` + provider vars in `.env` (see `.env.example`).
 
 ## 🧑‍💻 Local development
 
-**Backend**
 ```bash
-cd server
-python3 -m venv .venv && . .venv/bin/activate
+# Backend
+cd server && python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --reload           # http://localhost:8000
-python test_smoke.py                     # end-to-end API smoke test
-```
+uvicorn app.main:app --reload            # http://localhost:8000
+python test_smoke.py                      # end-to-end API smoke test
 
-**Web PWA**
-```bash
-cd web
-npm install
-npm run dev                              # http://localhost:5173 (proxies /api + /ws)
+# Web (hot reload, proxies /api + /ws to :8000)
+cd web && npm install && npm run dev      # http://localhost:5173
 ```
-
-**Desktop client (PyQt6) against the API**
-```bash
-cd kanban_app
-pip install -r ../requirements.txt
-KANBAN_API_URL=http://localhost:8000 python main.py
-```
-Without `KANBAN_API_URL`, the desktop app falls back to its legacy local SQLite
-database and runs fully standalone.
-
----
 
 ## 🔐 Security
 
-- Passwords and security answers are hashed with **argon2id** (per-hash salt).
-- Auth uses signed **JWT** bearer tokens; `KANBAN_SECRET_KEY` is required in prod.
-- Per-task authorization: only owners can edit/delete/share; shared users can
-  view and move.
-- The desktop client no longer stores your password in plaintext.
+- Passwords & security answers hashed with **argon2id**; **JWT** bearer auth.
+- Login **rate limiting** (brute-force lockout).
+- Per-board authorization; AI keys are **write-only** and never sent to the browser.
+- `KANBAN_SECRET_KEY` required in production.
 
----
-
-## 🏗️ How the pieces fit
-
-| Layer | Tech | Role |
-|-------|------|------|
-| API core | FastAPI + Uvicorn | REST, WebSocket live sync, auth |
-| Storage | SQLite (WAL mode) | Single-file DB, ideal for a small/family instance |
-| Web client | React + Vite (PWA) | Browser + installable mobile app |
-| Desktop client | PyQt6 | Optional native window, same API |
-| Deploy | Docker + Tailscale | One container on your NAS, private remote access |
-
-*Kanbanpy Pro v2.0 — hnavarro*
+*Kanbanpy Pro — hnavarro*

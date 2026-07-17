@@ -3,7 +3,7 @@ auth.py - Authentication routes: register, login, current user, password reset.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from . import db
+from . import db, ratelimit
 from .deps import get_current_user
 from .schemas import (ForgotResetRequest, LoginRequest, RegisterRequest,
                       TokenResponse, UserOut)
@@ -23,9 +23,18 @@ def register(req: RegisterRequest):
 
 @router.post("/login", response_model=TokenResponse)
 def login(req: LoginRequest):
+    key = req.username.strip().lower()
+    locked = ratelimit.seconds_locked(key)
+    if locked:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"Demasiados intentos. Prueba de nuevo en {locked // 60 + 1} min.",
+        )
     user = db.authenticate(req.username, req.password)
     if not user:
+        ratelimit.record_failure(key)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Wrong username or password.")
+    ratelimit.reset(key)
     token = create_access_token(user["id"])
     return TokenResponse(access_token=token, user=UserOut(**user))
 
