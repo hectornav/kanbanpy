@@ -96,7 +96,10 @@ input, textarea, select { font-family: inherit; }
 .brand-tag { color: rgba(255, 255, 255, 0.55); margin: 0 0 28px; font-size: 15px; }
 .brand-features { list-style: none; padding: 0; margin: auto 0 0; display: grid; gap: 10px; }
 .brand-features li { color: rgba(255, 255, 255, 0.5); font-size: 13px; }
-.auth-card { background: var(--surface); display: grid; place-items: center; padding: 24px; }
+.auth-card { background: var(--surface); display: grid; place-items: center; padding: 24px; position: relative; }
+.lang-row { position: absolute; top: 16px; right: 20px; display: flex; gap: 6px; }
+.lang-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 999px; padding: 4px 10px; font-size: 11px; font-weight: 600; }
+.lang-btn.active { color: var(--ink); border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-soft); }
 .auth-inner { width: 100%; max-width: 360px; }
 .auth-form { display: flex; flex-direction: column; }
 .auth-form h2 { margin: 0; font-size: 26px; letter-spacing: -0.02em; }

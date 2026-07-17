@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { api } from "./api.js";
+import { useT } from "./i18n.jsx";
 
 const COLORS = ["#5b8cff", "#3ecf8e", "#f0a43a", "#e5484d", "#8b5cf6", "#e0658a"];
 
 export default function BoardSettingsModal({ board, users, onClose, onSaved, onDeleted, onError }) {
+  const { t } = useT();
   const isNew = !!board.isNew;
   const [name, setName] = useState(board.name || "");
   const [color, setColor] = useState(board.color || COLORS[0]);
@@ -37,7 +39,7 @@ export default function BoardSettingsModal({ board, users, onClose, onSaved, onD
   }
 
   async function remove() {
-    if (!confirm(`¿Eliminar el tablero "${board.name}" y todas sus tareas?`)) return;
+    if (!confirm(t("bs.confirmDelete", { name: board.name }))) return;
     try {
       await api.deleteBoard(board.id);
       onDeleted();
@@ -51,14 +53,14 @@ export default function BoardSettingsModal({ board, users, onClose, onSaved, onD
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <form onSubmit={submit}>
           <header className="modal-head">
-            <h3>{isNew ? "Nuevo tablero" : "Ajustes del tablero"}</h3>
-            <button type="button" className="icon-btn" onClick={onClose} aria-label="Cerrar">✕</button>
+            <h3>{isNew ? t("bs.newBoard") : t("bs.settings")}</h3>
+            <button type="button" className="icon-btn" onClick={onClose} aria-label={t("common.cancel")}>✕</button>
           </header>
 
-          <label>Nombre</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Casa, Trabajo, Viaje…" autoFocus required />
+          <label>{t("bs.name")}</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("bs.namePh")} autoFocus required />
 
-          <label>Color</label>
+          <label>{t("bs.color")}</label>
           <div className="color-row">
             {COLORS.map((c) => (
               <button
@@ -76,12 +78,12 @@ export default function BoardSettingsModal({ board, users, onClose, onSaved, onD
             <>
               <label className="check">
                 <input type="checkbox" checked={isShared} onChange={(e) => setIsShared(e.target.checked)} />
-                Compartir con todos los usuarios
+                {t("bs.shareAll")}
               </label>
 
               {!isShared && users.length > 0 && (
                 <details className="share-box" open>
-                  <summary>Compartir con usuarios concretos ({memberIds.length})</summary>
+                  <summary>{t("bs.shareSpecific")} ({memberIds.length})</summary>
                   <div className="share-list">
                     {users.map((u) => (
                       <label key={u.id} className="check">
@@ -97,11 +99,11 @@ export default function BoardSettingsModal({ board, users, onClose, onSaved, onD
 
           <footer className="modal-foot">
             {!isNew && (
-              <button type="button" className="danger" onClick={remove}>Eliminar tablero</button>
+              <button type="button" className="danger" onClick={remove}>{t("bs.deleteBoard")}</button>
             )}
             <div className="spacer" />
-            <button type="button" className="ghost" onClick={onClose}>Cancelar</button>
-            <button type="submit" className="primary">{isNew ? "Crear" : "Guardar"}</button>
+            <button type="button" className="ghost" onClick={onClose}>{t("common.cancel")}</button>
+            <button type="submit" className="primary">{isNew ? t("common.create") : t("common.save")}</button>
           </footer>
         </form>
       </div>

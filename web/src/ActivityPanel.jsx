@@ -1,27 +1,20 @@
 import { useEffect, useState } from "react";
 import { api } from "./api.js";
+import { useT } from "./i18n.jsx";
 
-const VERBS = {
-  created: "creó",
-  edited: "editó",
-  moved: "movió a",
-  archived: "archivó",
-  restored: "restauró",
-  deleted: "eliminó"
+const VERB_KEY = {
+  created: "act.created", edited: "act.edited", moved: "act.moved",
+  archived: "act.archived", restored: "act.restored", deleted: "act.deleted"
 };
 
 const ICONS = {
-  created: "➕",
-  edited: "✏️",
-  moved: "➡️",
-  archived: "📦",
-  restored: "♻️",
-  deleted: "🗑️"
+  created: "➕", edited: "✏️", moved: "➡️", archived: "📦", restored: "♻️", deleted: "🗑️"
 };
 
-const COLS = { ToDo: "Por hacer", Doing: "En curso", Done: "Hecho" };
+const COL_KEYS = ["ToDo", "Doing", "Done"];
 
 export default function ActivityPanel({ boardId, boardName, onClose }) {
+  const { t } = useT();
   const [entries, setEntries] = useState(null);
 
   useEffect(() => {
@@ -33,21 +26,21 @@ export default function ActivityPanel({ boardId, boardName, onClose }) {
       <aside className="drawer" onClick={(e) => e.stopPropagation()}>
         <header className="drawer-head">
           <div>
-            <h3>Actividad</h3>
+            <h3>{t("act.title")}</h3>
             <p className="sub">{boardName}</p>
           </div>
-          <button className="icon-btn" onClick={onClose} aria-label="Cerrar">✕</button>
+          <button className="icon-btn" onClick={onClose} aria-label={t("common.cancel")}>✕</button>
         </header>
         <div className="drawer-body">
-          {entries === null && <p className="empty">Cargando…</p>}
-          {entries?.length === 0 && <p className="empty">Sin actividad todavía.</p>}
+          {entries === null && <p className="empty">{t("common.loading")}</p>}
+          {entries?.length === 0 && <p className="empty">{t("act.empty")}</p>}
           {entries?.map((e, i) => (
             <div className="act-row" key={i}>
               <span className="act-icon">{ICONS[e.action] || "•"}</span>
               <div className="act-body">
                 <p>
-                  <strong>@{e.username}</strong> {VERBS[e.action] || e.action}
-                  {e.detail && <span className="act-detail"> {COLS[e.detail] || e.detail}</span>}
+                  <strong>@{e.username}</strong> {t(VERB_KEY[e.action] || e.action)}
+                  {e.detail && <span className="act-detail"> {COL_KEYS.includes(e.detail) ? t(`col.${e.detail}`) : e.detail}</span>}
                 </p>
                 <span className="act-time">{formatTime(e.created_at)}</span>
               </div>
