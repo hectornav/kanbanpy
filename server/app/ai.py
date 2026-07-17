@@ -29,6 +29,9 @@ def config() -> dict:
         "provider": db.get_setting("ai_provider", settings.ai_provider) or settings.ai_provider,
         "anthropic_api_key": db.get_setting("anthropic_api_key", settings.anthropic_api_key),
         "anthropic_model": db.get_setting("anthropic_model", settings.anthropic_model) or settings.anthropic_model,
+        "openai_base_url": db.get_setting("openai_base_url", settings.openai_base_url) or settings.openai_base_url,
+        "openai_api_key": db.get_setting("openai_api_key", settings.openai_api_key),
+        "openai_model": db.get_setting("openai_model", settings.openai_model) or settings.openai_model,
         "ollama_url": db.get_setting("ollama_url", settings.ollama_url) or settings.ollama_url,
         "ollama_model": db.get_setting("ollama_model", settings.ollama_model) or settings.ollama_model,
     }
@@ -69,15 +72,28 @@ _SCHEMA = {
     "additionalProperties": False,
 }
 
+# JSON shape hint for providers that don't enforce a schema natively (OpenAI-compatible).
+_SYSTEM_JSON = _SYSTEM + (
+    "\n\nReturn ONLY a JSON object (no prose, no markdown) of the form:\n"
+    '{"tasks": [{"text": string, "description": string, '
+    '"priority": "High|Medium|Low", "column_name": "ToDo|Doing|Done", "tags": [string]}]}'
+)
+
 
 def anthropic_key_set() -> bool:
     return bool(config()["anthropic_api_key"] or os.getenv("ANTHROPIC_API_KEY"))
+
+
+def openai_key_set() -> bool:
+    return bool(config()["openai_api_key"])
 
 
 def configured() -> bool:
     c = config()
     if c["provider"] == "ollama":
         return True  # reachability is checked when a plan is generated
+    if c["provider"] == "openai":
+        return bool(c["openai_api_key"] and c["openai_base_url"])
     return bool(_HAS_ANTHROPIC and (c["anthropic_api_key"] or os.getenv("ANTHROPIC_API_KEY")))
 
 
@@ -88,6 +104,8 @@ def generate_plan(idea: str) -> list[dict]:
         raise RuntimeError("AI planner not configured")
     if c["provider"] == "ollama":
         return _generate_ollama(idea, c)
+    if c["provider"] == "openai":
+        return _generate_openai(idea, c)
     return _generate_anthropic(idea, c)
 
 
@@ -133,4 +151,31 @@ def _generate_ollama(idea: str, c: dict) -> list[dict]:
     with urllib.request.urlopen(req, timeout=180) as resp:
         body = json.loads(resp.read())
     content = body.get("message", {}).get("content", "{}")
+    return json.loads(content).get("tasks", [])
+
+
+# ── OpenAI-compatible (OpenAI, Groq, OpenRouter, Together, LM Studio, …) ─────
+
+def _generate_openai(idea: str, c: dict) -> list[dict]:
+    payload = {
+        "model": c["openai_model"],
+        "messages": [
+            {"role": "system", "content": _SYSTEM_JSON},
+            {"role": "user", "content": f"Project idea:\n{idea.strip()}"},
+        ],
+        "temperature": 0.4,
+        "response_format": {"type": "json_object"},  # widely supported; forces valid JSON
+    }
+    req = urllib.request.Request(
+        c["openai_base_url"].rstrip("/") + "/chat/completions",
+        data=json.dumps(payload).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {c['openai_api_key']}",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=180) as resp:
+        body = json.loads(resp.read())
+    content = body["choices"][0]["message"]["content"]
     return json.loads(content).get("tasks", [])

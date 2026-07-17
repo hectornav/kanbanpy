@@ -134,7 +134,11 @@ with c:
     check("status now enabled", c.get("/api/ai/status").json()["enabled"] is True)
     check("admin sets anthropic key -> enabled",
           c.put("/api/ai/config", headers=hdr, json={"provider": "anthropic", "anthropic_api_key": "sk-ant-test"}).json()["enabled"] is True)
-    check("config never leaks the key", "anthropic_api_key" not in c.get("/api/ai/config", headers=hdr).json())
+    check("admin sets openai-compatible -> enabled",
+          c.put("/api/ai/config", headers=hdr, json={"provider": "openai", "openai_base_url": "https://api.groq.com/openai/v1", "openai_api_key": "gsk-test", "openai_model": "llama-3.3-70b"}).json()["enabled"] is True)
+    cfg2 = c.get("/api/ai/config", headers=hdr).json()
+    check("openai config exposed w/o key", cfg2["provider"] == "openai" and cfg2["openai_key_set"] is True and "openai_api_key" not in cfg2)
+    check("config never leaks any key", "anthropic_api_key" not in cfg2 and "openai_api_key" not in cfg2)
     c.put("/api/ai/config", headers=hdr, json={"provider": "anthropic"})  # leave provider=anthropic (key still stored)
 
     # ── push subscription ──

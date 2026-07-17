@@ -304,6 +304,21 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
   .auth-brand { display: none; }
   .board-grid { grid-template-columns: 1fr; max-width: 520px; }
   .card-archive { opacity: 1; }
+
+  /* Header rows wrap/scroll instead of overflowing the viewport. */
+  body { overflow-x: hidden; }
+  .brand-mini strong { white-space: nowrap; }
+  .topbar { flex-wrap: wrap; gap: 8px; row-gap: 6px; }
+  .topbar-right { flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+  .who { display: none; }
+
+  .board-bar { flex-direction: column; align-items: stretch; gap: 10px; }
+  .board-bar .seg { display: flex; overflow-x: auto; }
+  .board-bar .seg button { flex: 1 1 auto; white-space: nowrap; }
+  .board-bar-right { justify-content: flex-start; flex-wrap: wrap; }
+
+  .filter-bar { padding-top: 0; }
+  .filter-bar .search { min-width: 140px; }
 }
 
 /* ── Themed headings (Meridian gets a monospace display) ────────────── */

@@ -74,9 +74,12 @@ class AiPlanRequest(BaseModel):
 
 
 class AiConfigIn(BaseModel):
-    provider: str = "anthropic"  # "anthropic" | "ollama"
+    provider: str = "anthropic"  # "anthropic" | "openai" | "ollama"
     anthropic_api_key: str | None = None  # None/empty = keep existing (write-only)
     anthropic_model: str | None = None
+    openai_base_url: str | None = None
+    openai_api_key: str | None = None  # write-only
+    openai_model: str | None = None
     ollama_url: str | None = None
     ollama_model: str | None = None
 

@@ -45,11 +45,16 @@ class Settings(BaseSettings):
     # How often the due-date reminder sweep runs (seconds).
     reminder_interval_seconds: int = 1800
 
-    # AI planner. Provider is "anthropic" (Claude cloud) or "ollama" (self-hosted).
+    # AI planner. Provider: "anthropic" (Claude), "openai" (any OpenAI-compatible
+    # API — OpenAI, Groq, OpenRouter, Together, Mistral, LM Studio…), or "ollama".
     ai_provider: str = "anthropic"
     # Anthropic — key stays server-side, never sent to the browser.
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-opus-4-8"
+    # OpenAI-compatible — base URL + key + model (works with most providers).
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
     # Ollama — local models on your NAS/host (no API key, fully private).
     ollama_url: str = "http://host.docker.internal:11434"
     ollama_model: str = "llama3.1"

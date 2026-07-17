@@ -8,6 +8,7 @@ export default function AiPlanModal({ boardId, onClose, onDone, onError }) {
   const [mode, setMode] = useState("generate"); // generate | config
   const [form, setForm] = useState({
     provider: "anthropic", anthropic_api_key: "", anthropic_model: "",
+    openai_base_url: "", openai_api_key: "", openai_model: "",
     ollama_url: "", ollama_model: ""
   });
   const [idea, setIdea] = useState("");
@@ -18,6 +19,7 @@ export default function AiPlanModal({ boardId, onClose, onDone, onError }) {
       setCfg(c);
       setForm({
         provider: c.provider, anthropic_api_key: "", anthropic_model: c.anthropic_model || "",
+        openai_base_url: c.openai_base_url || "", openai_api_key: "", openai_model: c.openai_model || "",
         ollama_url: c.ollama_url || "", ollama_model: c.ollama_model || ""
       });
       setMode(c.enabled ? "generate" : "config");
@@ -87,10 +89,11 @@ export default function AiPlanModal({ boardId, onClose, onDone, onError }) {
             <label>{t("ai.provider")}</label>
             <select value={form.provider} onChange={(e) => set("provider", e.target.value)}>
               <option value="anthropic">{t("ai.claude")}</option>
+              <option value="openai">{t("ai.openaiOpt")}</option>
               <option value="ollama">{t("ai.ollamaOpt")}</option>
             </select>
 
-            {form.provider === "anthropic" ? (
+            {form.provider === "anthropic" && (
               <>
                 <label>{t("ai.apiKey")} {cfg.anthropic_key_set && <span className="ok-tag">{t("ai.keySet")}</span>}</label>
                 <input type="password" value={form.anthropic_api_key} autoComplete="off"
@@ -99,7 +102,23 @@ export default function AiPlanModal({ boardId, onClose, onDone, onError }) {
                 <input value={form.anthropic_model} onChange={(e) => set("anthropic_model", e.target.value)}
                   placeholder="claude-opus-4-8" />
               </>
-            ) : (
+            )}
+
+            {form.provider === "openai" && (
+              <>
+                <label>{t("ai.baseUrl")}</label>
+                <input value={form.openai_base_url} onChange={(e) => set("openai_base_url", e.target.value)}
+                  placeholder="https://api.openai.com/v1" />
+                <label>{t("ai.apiKey")} {cfg.openai_key_set && <span className="ok-tag">{t("ai.keySet")}</span>}</label>
+                <input type="password" value={form.openai_api_key} autoComplete="off"
+                  onChange={(e) => set("openai_api_key", e.target.value)} placeholder={t("ai.apiKeyPh")} />
+                <label>{t("ai.model")}</label>
+                <input value={form.openai_model} onChange={(e) => set("openai_model", e.target.value)}
+                  placeholder="gpt-4o-mini" />
+              </>
+            )}
+
+            {form.provider === "ollama" && (
               <>
                 <label>{t("ai.serverUrl")}</label>
                 <input value={form.ollama_url} onChange={(e) => set("ollama_url", e.target.value)}

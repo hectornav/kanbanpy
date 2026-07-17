@@ -26,6 +26,9 @@ def get_ai_config(current=Depends(get_current_user)):
         "provider": c["provider"],
         "anthropic_key_set": ai.anthropic_key_set(),
         "anthropic_model": c["anthropic_model"],
+        "openai_base_url": c["openai_base_url"],
+        "openai_key_set": ai.openai_key_set(),
+        "openai_model": c["openai_model"],
         "ollama_url": c["ollama_url"],
         "ollama_model": c["ollama_model"],
         "enabled": ai.configured(),
@@ -44,6 +47,12 @@ def set_ai_config(req: AiConfigIn, current=Depends(get_current_user)):
         db.set_setting("anthropic_api_key", req.anthropic_api_key.strip())
     if req.anthropic_model:
         db.set_setting("anthropic_model", req.anthropic_model.strip())
+    if req.openai_base_url:
+        db.set_setting("openai_base_url", req.openai_base_url.strip())
+    if req.openai_api_key:
+        db.set_setting("openai_api_key", req.openai_api_key.strip())
+    if req.openai_model:
+        db.set_setting("openai_model", req.openai_model.strip())
     if req.ollama_url:
         db.set_setting("ollama_url", req.ollama_url.strip())
     if req.ollama_model:

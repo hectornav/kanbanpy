@@ -28,6 +28,9 @@ services:
       KANBAN_AI_PROVIDER: ${KANBAN_AI_PROVIDER:-anthropic}
       KANBAN_ANTHROPIC_API_KEY: ${KANBAN_ANTHROPIC_API_KEY:-}
       KANBAN_ANTHROPIC_MODEL: ${KANBAN_ANTHROPIC_MODEL:-claude-opus-4-8}
+      KANBAN_OPENAI_BASE_URL: ${KANBAN_OPENAI_BASE_URL:-https://api.openai.com/v1}
+      KANBAN_OPENAI_API_KEY: ${KANBAN_OPENAI_API_KEY:-}
+      KANBAN_OPENAI_MODEL: ${KANBAN_OPENAI_MODEL:-gpt-4o-mini}
       KANBAN_OLLAMA_URL: ${KANBAN_OLLAMA_URL:-http://host.docker.internal:11434}
       KANBAN_OLLAMA_MODEL: ${KANBAN_OLLAMA_MODEL:-llama3.1}
     # Lets the container reach an Ollama running on the NAS host.
