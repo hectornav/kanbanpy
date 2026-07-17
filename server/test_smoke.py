@@ -125,6 +125,17 @@ with c:
     check("ai status endpoint", c.get("/api/ai/status").json()["enabled"] is False)
     check("ai-plan 503 when unconfigured",
           c.post(f"/api/boards/{b1}/ai-plan", headers=hdr, json={"idea": "Build a blog"}).status_code == 503)
+    cfg = c.get("/api/ai/config", headers=hdr).json()
+    check("admin can edit, key not set", cfg["can_edit"] is True and cfg["anthropic_key_set"] is False)
+    check("non-admin cannot edit", c.get("/api/ai/config", headers=bob).json()["can_edit"] is False)
+    check("non-admin save 403", c.put("/api/ai/config", headers=bob, json={"provider": "ollama"}).status_code == 403)
+    check("admin sets ollama -> enabled",
+          c.put("/api/ai/config", headers=hdr, json={"provider": "ollama", "ollama_url": "http://x:11434", "ollama_model": "llama3.1"}).json()["enabled"] is True)
+    check("status now enabled", c.get("/api/ai/status").json()["enabled"] is True)
+    check("admin sets anthropic key -> enabled",
+          c.put("/api/ai/config", headers=hdr, json={"provider": "anthropic", "anthropic_api_key": "sk-ant-test"}).json()["enabled"] is True)
+    check("config never leaks the key", "anthropic_api_key" not in c.get("/api/ai/config", headers=hdr).json())
+    c.put("/api/ai/config", headers=hdr, json={"provider": "anthropic"})  # leave provider=anthropic (key still stored)
 
     # ── push subscription ──
     print("push")

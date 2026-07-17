@@ -13,6 +13,7 @@ import os
 import urllib.error
 import urllib.request
 
+from . import db
 from .config import settings
 
 try:
@@ -20,6 +21,17 @@ try:
     _HAS_ANTHROPIC = True
 except ImportError:  # pragma: no cover
     _HAS_ANTHROPIC = False
+
+
+def config() -> dict:
+    """Resolve AI config: DB settings (editable in-app) override env defaults."""
+    return {
+        "provider": db.get_setting("ai_provider", settings.ai_provider) or settings.ai_provider,
+        "anthropic_api_key": db.get_setting("anthropic_api_key", settings.anthropic_api_key),
+        "anthropic_model": db.get_setting("anthropic_model", settings.anthropic_model) or settings.anthropic_model,
+        "ollama_url": db.get_setting("ollama_url", settings.ollama_url) or settings.ollama_url,
+        "ollama_model": db.get_setting("ollama_model", settings.ollama_model) or settings.ollama_model,
+    }
 
 _SYSTEM = (
     "You are an expert agile project manager. Given a project idea, break it down "
@@ -58,32 +70,38 @@ _SCHEMA = {
 }
 
 
+def anthropic_key_set() -> bool:
+    return bool(config()["anthropic_api_key"] or os.getenv("ANTHROPIC_API_KEY"))
+
+
 def configured() -> bool:
-    if settings.ai_provider == "ollama":
+    c = config()
+    if c["provider"] == "ollama":
         return True  # reachability is checked when a plan is generated
-    return bool(_HAS_ANTHROPIC and (settings.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")))
+    return bool(_HAS_ANTHROPIC and (c["anthropic_api_key"] or os.getenv("ANTHROPIC_API_KEY")))
 
 
 def generate_plan(idea: str) -> list[dict]:
     """Return a list of task dicts for the given project idea."""
+    c = config()
     if not configured():
         raise RuntimeError("AI planner not configured")
-    if settings.ai_provider == "ollama":
-        return _generate_ollama(idea)
-    return _generate_anthropic(idea)
+    if c["provider"] == "ollama":
+        return _generate_ollama(idea, c)
+    return _generate_anthropic(idea, c)
 
 
 # ── Anthropic (Claude) ──────────────────────────────────────────────────────
 
-def _anthropic_client():
-    if settings.anthropic_api_key:
-        return anthropic.Anthropic(api_key=settings.anthropic_api_key)
+def _anthropic_client(c: dict):
+    if c["anthropic_api_key"]:
+        return anthropic.Anthropic(api_key=c["anthropic_api_key"])
     return anthropic.Anthropic()  # resolves ANTHROPIC_API_KEY / profile from env
 
 
-def _generate_anthropic(idea: str) -> list[dict]:
-    response = _anthropic_client().messages.create(
-        model=settings.anthropic_model,
+def _generate_anthropic(idea: str, c: dict) -> list[dict]:
+    response = _anthropic_client(c).messages.create(
+        model=c["anthropic_model"],
         max_tokens=4096,
         system=_SYSTEM,
         messages=[{"role": "user", "content": f"Project idea:\n{idea.strip()}"}],
@@ -95,9 +113,9 @@ def _generate_anthropic(idea: str) -> list[dict]:
 
 # ── Ollama (local) ──────────────────────────────────────────────────────────
 
-def _generate_ollama(idea: str) -> list[dict]:
+def _generate_ollama(idea: str, c: dict) -> list[dict]:
     payload = {
-        "model": settings.ollama_model,
+        "model": c["ollama_model"],
         "messages": [
             {"role": "system", "content": _SYSTEM},
             {"role": "user", "content": f"Project idea:\n{idea.strip()}"},
@@ -107,7 +125,7 @@ def _generate_ollama(idea: str) -> list[dict]:
         "options": {"temperature": 0.4},
     }
     req = urllib.request.Request(
-        settings.ollama_url.rstrip("/") + "/api/chat",
+        c["ollama_url"].rstrip("/") + "/api/chat",
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
         method="POST",

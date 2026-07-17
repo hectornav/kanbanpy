@@ -128,6 +128,8 @@ export const api = {
 
   // AI planner
   aiStatus: () => request("/ai/status"),
+  aiConfig: () => request("/ai/config"),
+  saveAiConfig: (payload) => request("/ai/config", { method: "PUT", body: payload }),
   aiPlan: (boardId, idea) => request(`/boards/${boardId}/ai-plan`, { method: "POST", body: { idea } }),
 
   // Push notifications

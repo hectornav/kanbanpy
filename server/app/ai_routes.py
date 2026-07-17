@@ -6,7 +6,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from . import ai, db
 from .deps import get_current_user
-from .schemas import AiPlanRequest
+from .schemas import AiConfigIn, AiPlanRequest
 from .ws import manager
 
 router = APIRouter(prefix="/api", tags=["ai"])
@@ -15,6 +15,39 @@ router = APIRouter(prefix="/api", tags=["ai"])
 @router.get("/ai/status")
 def ai_status():
     """Lets the UI show/hide the planner button without exposing the key."""
+    return {"enabled": ai.configured()}
+
+
+@router.get("/ai/config")
+def get_ai_config(current=Depends(get_current_user)):
+    """Non-secret AI config for the settings form. Never returns the API key."""
+    c = ai.config()
+    return {
+        "provider": c["provider"],
+        "anthropic_key_set": ai.anthropic_key_set(),
+        "anthropic_model": c["anthropic_model"],
+        "ollama_url": c["ollama_url"],
+        "ollama_model": c["ollama_model"],
+        "enabled": ai.configured(),
+        "can_edit": db.is_admin(current["id"]),
+    }
+
+
+@router.put("/ai/config")
+def set_ai_config(req: AiConfigIn, current=Depends(get_current_user)):
+    if not db.is_admin(current["id"]):
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "Solo el administrador (primer usuario) puede cambiar la IA.")
+    db.set_setting("ai_provider", req.provider)
+    # API key is write-only: only overwrite when a new value is provided.
+    if req.anthropic_api_key:
+        db.set_setting("anthropic_api_key", req.anthropic_api_key.strip())
+    if req.anthropic_model:
+        db.set_setting("anthropic_model", req.anthropic_model.strip())
+    if req.ollama_url:
+        db.set_setting("ollama_url", req.ollama_url.strip())
+    if req.ollama_model:
+        db.set_setting("ollama_model", req.ollama_model.strip())
     return {"enabled": ai.configured()}
 
 

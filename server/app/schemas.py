@@ -73,6 +73,14 @@ class AiPlanRequest(BaseModel):
     idea: str = Field(min_length=3, max_length=2000)
 
 
+class AiConfigIn(BaseModel):
+    provider: str = "anthropic"  # "anthropic" | "ollama"
+    anthropic_api_key: str | None = None  # None/empty = keep existing (write-only)
+    anthropic_model: str | None = None
+    ollama_url: str | None = None
+    ollama_model: str | None = None
+
+
 class MoveRequest(BaseModel):
     column_name: str
     sort_order: int | None = None

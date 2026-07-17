@@ -67,6 +67,11 @@ const T = {
     "ai.disabledDesc": "La IA no está configurada en el servidor. Elige un proveedor en tu archivo .env y relanza con «docker compose up -d»:",
     "ai.optAnthropic": "Opción A — Claude (nube)",
     "ai.optOllama": "Opción B — Ollama (local, en tu NAS)",
+    "ai.cfgIntro": "Elige un proveedor y guarda. Se aplica al instante, sin relanzar.",
+    "ai.provider": "Proveedor", "ai.claude": "Claude (nube)", "ai.ollamaOpt": "Ollama (local)",
+    "ai.apiKey": "API key", "ai.apiKeyPh": "sk-ant-…  (vacío = no cambiar)", "ai.keySet": "Key configurada ✓",
+    "ai.model": "Modelo", "ai.serverUrl": "URL del servidor del modelo",
+    "ai.configure": "⚙︎ Configurar", "ai.noEdit": "Solo el administrador (el primer usuario registrado) puede configurar la IA.",
     "offline.title": "📴 Sin conexión — trabajando en local",
     "offline.pending": "· {n} cambios en cola", "offline.syncing": "Conexión restablecida — sincronizando…"
   },
@@ -129,6 +134,11 @@ const T = {
     "ai.disabledDesc": "La IA no està configurada al servidor. Tria un proveïdor al teu fitxer .env i rellança amb «docker compose up -d»:",
     "ai.optAnthropic": "Opció A — Claude (núvol)",
     "ai.optOllama": "Opció B — Ollama (local, al teu NAS)",
+    "ai.cfgIntro": "Tria un proveïdor i desa. S'aplica a l'instant, sense rellançar.",
+    "ai.provider": "Proveïdor", "ai.claude": "Claude (núvol)", "ai.ollamaOpt": "Ollama (local)",
+    "ai.apiKey": "API key", "ai.apiKeyPh": "sk-ant-…  (buit = no canviar)", "ai.keySet": "Clau configurada ✓",
+    "ai.model": "Model", "ai.serverUrl": "URL del servidor del model",
+    "ai.configure": "⚙︎ Configura", "ai.noEdit": "Només l'administrador (el primer usuari registrat) pot configurar la IA.",
     "offline.title": "📴 Sense connexió — treballant en local",
     "offline.pending": "· {n} canvis a la cua", "offline.syncing": "Connexió restablerta — sincronitzant…"
   },
@@ -191,6 +201,11 @@ const T = {
     "ai.disabledDesc": "AI isn't configured on the server. Pick a provider in your .env file and relaunch with “docker compose up -d”:",
     "ai.optAnthropic": "Option A — Claude (cloud)",
     "ai.optOllama": "Option B — Ollama (local, on your NAS)",
+    "ai.cfgIntro": "Pick a provider and save. Applies instantly, no relaunch.",
+    "ai.provider": "Provider", "ai.claude": "Claude (cloud)", "ai.ollamaOpt": "Ollama (local)",
+    "ai.apiKey": "API key", "ai.apiKeyPh": "sk-ant-…  (empty = keep current)", "ai.keySet": "Key set ✓",
+    "ai.model": "Model", "ai.serverUrl": "Model server URL",
+    "ai.configure": "⚙︎ Configure", "ai.noEdit": "Only the admin (first registered user) can configure AI.",
     "offline.title": "📴 Offline — working locally",
     "offline.pending": "· {n} changes queued", "offline.syncing": "Back online — syncing…"
   }
