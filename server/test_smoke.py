@@ -98,6 +98,18 @@ with c:
     check("board owner can delete any comment",
           c.delete(f"/api/comments/{cid_bob}", headers=hdr).status_code == 200)
 
+    # ── recurring tasks ──
+    print("recurring")
+    rec = c.post(f"/api/boards/{b1}/tasks", headers=hdr,
+                 json={"text": "Sacar la basura", "due_date": "2026-07-10", "recurrence": "weekly", "column_name": "Doing"}).json()["id"]
+    before = sum(len(v) for v in c.get(f"/api/boards/{b1}/tasks", headers=hdr).json().values())
+    c.post(f"/api/tasks/{rec}/move", headers=hdr, json={"column_name": "Done"})
+    view = c.get(f"/api/boards/{b1}/tasks", headers=hdr).json()
+    after = sum(len(v) for v in view.values())
+    check("completing a recurring task spawns a new one", after == before + 1)
+    nextocc = next((t for t in view["ToDo"] if t["text"] == "Sacar la basura"), None)
+    check("next occurrence date advanced +7d", nextocc and nextocc["due_date"] == "2026-07-17" and nextocc["recurrence"] == "weekly")
+
     # ── due-date reminders ──
     print("reminders")
     import datetime as _dt

@@ -335,6 +335,9 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 
 /* ── Task detail modal ──────────────────────────────────────────────── */
 .modal-lg { max-width: 560px; }
+/* Header sits outside the padded <form> here, so give it its own inset. */
+.modal > .modal-head { padding: 20px 22px 0; margin-bottom: 0; }
+.modal-lg form { padding-top: 14px; }
 .detail-extra { border-top: 1px solid var(--border); padding: 6px 22px 22px; }
 .detail-block { margin-top: 18px; }
 .detail-block h4 { margin: 0 0 10px; font-size: 14px; display: flex; align-items: center; gap: 8px; }

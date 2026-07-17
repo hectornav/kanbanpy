@@ -343,7 +343,8 @@ function SortableCard({ task, hidden, isOwner, onClick, onArchive }) {
           <span className="badge-mini" title="Subtareas">☑ {task.subtask_done}/{task.subtask_total}</span>
         )}
         {task.comment_count > 0 && <span className="badge-mini" title="Comentarios">💬 {task.comment_count}</span>}
-        {task.tags?.map((t) => <span className="chip" key={t}>{t}</span>)}
+        {task.recurrence && <span className="badge-mini" title={t(`rec.${task.recurrence}`)}>🔁</span>}
+        {task.tags?.map((tg) => <span className="chip" key={tg}>{tg}</span>)}
         {task.due_date && <span className="due">📅 {task.due_date}</span>}
         {task.assignee_username && (
           <span className="avatar" style={{ background: avatarColor(task.assignee_username) }} title={`@${task.assignee_username}`}>
@@ -394,6 +395,7 @@ function ListView({ board, matches, onOpen }) {
                 {it.priority && <span className={`prio prio-${it.priority.toLowerCase()}`}>{t(`prio.${it.priority}`)}</span>}
                 {it.subtask_total > 0 && <span className="badge-mini">☑ {it.subtask_done}/{it.subtask_total}</span>}
                 {it.comment_count > 0 && <span className="badge-mini">💬 {it.comment_count}</span>}
+                {it.recurrence && <span className="badge-mini" title={t(`rec.${it.recurrence}`)}>🔁</span>}
                 {it.due_date && <span className="due">📅 {it.due_date}</span>}
                 {it.assignee_username && <span className="avatar" style={{ background: avatarColor(it.assignee_username) }}>{initials(it.assignee_username)}</span>}
               </span>

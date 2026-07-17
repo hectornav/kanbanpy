@@ -53,6 +53,7 @@ class TaskIn(BaseModel):
     due_date: str = ""
     column_name: str = "ToDo"
     assignee_id: int | None = None
+    recurrence: str = ""
 
 
 class SubtaskIn(BaseModel):

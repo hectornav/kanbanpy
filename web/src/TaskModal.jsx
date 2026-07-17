@@ -16,7 +16,8 @@ export default function TaskModal({ task, users, currentUser, canDelete, canArch
     tags: (task.tags || []).join(", "),
     due_date: task.due_date || "",
     column_name: task.column_name || "ToDo",
-    assignee_id: task.assignee_id ?? ""
+    assignee_id: task.assignee_id ?? "",
+    recurrence: task.recurrence || ""
   });
   const [detail, setDetail] = useState(null);
   const [newSub, setNewSub] = useState("");
@@ -92,8 +93,21 @@ export default function TaskModal({ task, users, currentUser, canDelete, canArch
             </div>
           </div>
 
-          <label>{t("task.tags")}</label>
-          <input value={form.tags} onChange={(e) => set("tags", e.target.value)} placeholder={t("task.tagsPh")} />
+          <div className="row-2">
+            <div>
+              <label>{t("task.tags")}</label>
+              <input value={form.tags} onChange={(e) => set("tags", e.target.value)} placeholder={t("task.tagsPh")} />
+            </div>
+            <div>
+              <label>{t("task.recurrence")}</label>
+              <select value={form.recurrence} onChange={(e) => set("recurrence", e.target.value)}>
+                <option value="">{t("rec.none")}</option>
+                <option value="daily">{t("rec.daily")}</option>
+                <option value="weekly">{t("rec.weekly")}</option>
+                <option value="monthly">{t("rec.monthly")}</option>
+              </select>
+            </div>
+          </div>
 
           <div className="modal-foot">
             {canDelete && <button type="button" className="danger" onClick={() => onDelete(task.id)}>{t("common.delete")}</button>}

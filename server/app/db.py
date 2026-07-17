@@ -8,9 +8,10 @@ WAL mode so the PWA and desktop client don't block each other. Data model:
   * activity_log    — per-board history of what happened
   * task_shares     — legacy per-task sharing (kept for migration, unused in queries)
 """
+import calendar
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from .config import settings
 from .security import hash_secret, verify_secret
@@ -82,6 +83,7 @@ def init_db() -> None:
                 priority     TEXT    DEFAULT 'Medium',
                 tags         TEXT    DEFAULT '',
                 due_date     TEXT    DEFAULT '',
+                recurrence   TEXT    DEFAULT '',
                 is_shared    INTEGER DEFAULT 0,
                 assignee_id  INTEGER,
                 sort_order   INTEGER DEFAULT 0,
@@ -157,6 +159,7 @@ def init_db() -> None:
             ("archived_at", "ALTER TABLE tasks ADD COLUMN archived_at TEXT DEFAULT ''"),
             ("assignee_id", "ALTER TABLE tasks ADD COLUMN assignee_id INTEGER"),
             ("reminded_on", "ALTER TABLE tasks ADD COLUMN reminded_on TEXT DEFAULT ''"),
+            ("recurrence", "ALTER TABLE tasks ADD COLUMN recurrence TEXT DEFAULT ''"),
         ]:
             if col not in tcols:
                 conn.execute(ddl)
@@ -462,11 +465,11 @@ def create_task(owner_id: int, board_id: int, data: dict) -> int | None:
         cur = conn.execute(
             """INSERT INTO tasks
                (owner_id, board_id, column_name, text, description, priority, tags, due_date,
-                assignee_id, sort_order, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                recurrence, assignee_id, sort_order, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (owner_id, board_id, column, data.get("text", ""), data.get("description", ""),
              data.get("priority", "Medium"), tags, data.get("due_date", ""),
-             data.get("assignee_id"), order, now, now),
+             data.get("recurrence", ""), data.get("assignee_id"), order, now, now),
         )
         task_id = cur.lastrowid
         _log(conn, board_id, task_id, owner_id, "created", data.get("text", ""))
@@ -482,13 +485,31 @@ def update_task(task_id: int, user_id: int, data: dict) -> bool:
             return False
         conn.execute(
             """UPDATE tasks SET text=?, description=?, priority=?, tags=?, due_date=?,
-               column_name=?, assignee_id=?, updated_at=? WHERE id=?""",
+               recurrence=?, column_name=?, assignee_id=?, updated_at=? WHERE id=?""",
             (data.get("text", ""), data.get("description", ""), data.get("priority", "Medium"),
-             tags, data.get("due_date", ""), data.get("column_name", task["column_name"]),
-             data.get("assignee_id"), _now(), task_id),
+             tags, data.get("due_date", ""), data.get("recurrence", ""),
+             data.get("column_name", task["column_name"]), data.get("assignee_id"), _now(), task_id),
         )
         _log(conn, task["board_id"], task_id, user_id, "edited", data.get("text", ""))
     return True
+
+
+def _advance_date(date_str: str, rule: str) -> str | None:
+    try:
+        y, m, d = (int(x) for x in date_str.split("-"))
+        base = date(y, m, d)
+    except (ValueError, AttributeError):
+        return None
+    if rule == "daily":
+        from datetime import timedelta
+        return (base + timedelta(days=1)).isoformat()
+    if rule == "weekly":
+        from datetime import timedelta
+        return (base + timedelta(days=7)).isoformat()
+    if rule == "monthly":
+        nm, ny = (1, y + 1) if m == 12 else (m + 1, y)
+        return date(ny, nm, min(d, calendar.monthrange(ny, nm)[1])).isoformat()
+    return None
 
 
 def move_task(task_id: int, user_id: int, new_column: str, new_order: int | None = None) -> bool:
@@ -506,6 +527,23 @@ def move_task(task_id: int, user_id: int, new_column: str, new_order: int | None
         )
         if new_column != task["column_name"]:
             _log(conn, task["board_id"], task_id, user_id, "moved", new_column)
+        # Recurring task completed → spawn the next occurrence.
+        if (new_column == "Done" and task["column_name"] != "Done"
+                and task["recurrence"] and task["due_date"]):
+            nxt = _advance_date(task["due_date"], task["recurrence"])
+            if nxt:
+                order = _next_sort_order(conn, task["board_id"], "ToDo")
+                now = _now()
+                cur = conn.execute(
+                    """INSERT INTO tasks
+                       (owner_id, board_id, column_name, text, description, priority, tags,
+                        due_date, recurrence, assignee_id, sort_order, created_at, updated_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (task["owner_id"], task["board_id"], "ToDo", task["text"], task["description"],
+                     task["priority"], task["tags"], nxt, task["recurrence"], task["assignee_id"],
+                     order, now, now),
+                )
+                _log(conn, task["board_id"], cur.lastrowid, user_id, "created", task["text"])
     return True
 
 
