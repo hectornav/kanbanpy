@@ -289,7 +289,7 @@ export default function Board({ user, onLogout }) {
           <button className={view === "archive" ? "on" : ""} onClick={() => setView("archive")}>{t("nav.archive")}</button>
         </div>
         <div className="board-bar-right">
-          {view === "board" && aiEnabled && <button className="ghost" onClick={() => setShowAi(true)}>{t("ai.button")}</button>}
+          {view !== "archive" && <button className="ghost" onClick={() => setShowAi(true)}>{t("ai.button")}</button>}
           {view === "board" && <button className="ghost" onClick={() => setEditing({ column_name: "ToDo" })}>{t("nav.newTask")}</button>}
           {active?.is_owner && <button className="ghost" onClick={() => setSettingsFor({ ...active })} title={t("nav.boardSettings")}>⚙️</button>}
         </div>
@@ -313,7 +313,7 @@ export default function Board({ user, onLogout }) {
         </div>
       )}
 
-      <div className="board-scroll" style={bgStyle(bg)}>
+      <div className="board-scroll" style={view === "board" ? bgStyle(bg) : undefined}>
         {view === "board" ? (
           <DndContext sensors={sensors} collisionDetection={closestCorners} onDragOver={onDragOver} onDragEnd={onDragEnd}>
             <div className="board-grid">
@@ -353,7 +353,7 @@ export default function Board({ user, onLogout }) {
         <ActivityPanel boardId={active.id} boardName={active.name} onClose={() => setShowActivity(false)} />
       )}
       {showAi && activeId && (
-        <AiPlanModal boardId={activeId}
+        <AiPlanModal boardId={activeId} enabled={aiEnabled}
           onClose={() => setShowAi(false)}
           onError={(m) => { setShowAi(false); setError(m); }}
           onDone={async (n) => { setShowAi(false); setNotice(t("ai.created", { n })); await loadTasks(); }} />

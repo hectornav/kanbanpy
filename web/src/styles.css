@@ -147,6 +147,12 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 .banner.ok-banner { background: var(--done); }
 .banner.warn-banner { background: var(--todo); color: #1a1200; cursor: default; }
 
+/* AI planner config help (shown when the AI provider isn't configured) */
+.ai-help { padding: 0 22px 22px; }
+.ai-help .ai-opt { font-weight: 600; font-size: 13px; margin: 16px 0 6px; }
+.ai-help pre { margin: 0; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; overflow-x: auto; }
+.ai-help code { font-family: var(--mono); font-size: 12px; color: var(--ink-soft); white-space: pre; }
+
 .board-scroll { flex: 1; overflow: auto; padding: 20px; }
 .board-grid { display: grid; grid-template-columns: repeat(3, minmax(240px, 1fr)); gap: 16px; max-width: 1200px; margin: 0 auto; min-height: 100%; }
 .board-col { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; }

@@ -64,6 +64,9 @@ const T = {
     "ai.placeholder": "Ej.: Montar una tienda online de café artesano con pagos y envíos…",
     "ai.generate": "Generar tareas", "ai.generating": "Generando…",
     "ai.created": "{n} tareas creadas ✨",
+    "ai.disabledDesc": "La IA no está configurada en el servidor. Elige un proveedor en tu archivo .env y relanza con «docker compose up -d»:",
+    "ai.optAnthropic": "Opción A — Claude (nube)",
+    "ai.optOllama": "Opción B — Ollama (local, en tu NAS)",
     "offline.title": "📴 Sin conexión — trabajando en local",
     "offline.pending": "· {n} cambios en cola", "offline.syncing": "Conexión restablecida — sincronizando…"
   },
@@ -123,6 +126,9 @@ const T = {
     "ai.placeholder": "Ex.: Muntar una botiga en línia de cafè artesà amb pagaments i enviaments…",
     "ai.generate": "Genera tasques", "ai.generating": "Generant…",
     "ai.created": "{n} tasques creades ✨",
+    "ai.disabledDesc": "La IA no està configurada al servidor. Tria un proveïdor al teu fitxer .env i rellança amb «docker compose up -d»:",
+    "ai.optAnthropic": "Opció A — Claude (núvol)",
+    "ai.optOllama": "Opció B — Ollama (local, al teu NAS)",
     "offline.title": "📴 Sense connexió — treballant en local",
     "offline.pending": "· {n} canvis a la cua", "offline.syncing": "Connexió restablerta — sincronitzant…"
   },
@@ -182,6 +188,9 @@ const T = {
     "ai.placeholder": "e.g. Launch an online store for artisan coffee with payments and shipping…",
     "ai.generate": "Generate tasks", "ai.generating": "Generating…",
     "ai.created": "{n} tasks created ✨",
+    "ai.disabledDesc": "AI isn't configured on the server. Pick a provider in your .env file and relaunch with “docker compose up -d”:",
+    "ai.optAnthropic": "Option A — Claude (cloud)",
+    "ai.optOllama": "Option B — Ollama (local, on your NAS)",
     "offline.title": "📴 Offline — working locally",
     "offline.pending": "· {n} changes queued", "offline.syncing": "Back online — syncing…"
   }
