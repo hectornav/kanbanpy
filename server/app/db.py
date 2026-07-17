@@ -83,9 +83,11 @@ def init_db() -> None:
                 tags         TEXT    DEFAULT '',
                 due_date     TEXT    DEFAULT '',
                 is_shared    INTEGER DEFAULT 0,
+                assignee_id  INTEGER,
                 sort_order   INTEGER DEFAULT 0,
                 archived     INTEGER DEFAULT 0,
                 archived_at  TEXT    DEFAULT '',
+                reminded_on  TEXT    DEFAULT '',
                 created_at   TEXT    DEFAULT '',
                 updated_at   TEXT    DEFAULT '',
                 FOREIGN KEY(owner_id) REFERENCES users(id),
@@ -154,6 +156,7 @@ def init_db() -> None:
             ("archived", "ALTER TABLE tasks ADD COLUMN archived INTEGER DEFAULT 0"),
             ("archived_at", "ALTER TABLE tasks ADD COLUMN archived_at TEXT DEFAULT ''"),
             ("assignee_id", "ALTER TABLE tasks ADD COLUMN assignee_id INTEGER"),
+            ("reminded_on", "ALTER TABLE tasks ADD COLUMN reminded_on TEXT DEFAULT ''"),
         ]:
             if col not in tcols:
                 conn.execute(ddl)
@@ -669,6 +672,25 @@ def delete_comment(comment_id: int, user_id: int) -> bool:
             return False
         conn.execute("DELETE FROM comments WHERE id = ?", (comment_id,))
     return True
+
+
+# ── Due-date reminders ─────────────────────────────────────────────────────────
+
+def due_tasks(date_str: str) -> list[dict]:
+    """Unfinished, non-archived tasks due on date_str not yet reminded for it."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT id, board_id, assignee_id, text FROM tasks
+               WHERE due_date = ? AND archived = 0 AND column_name != 'Done'
+                 AND COALESCE(reminded_on, '') != ?""",
+            (date_str, date_str),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_reminded(task_id: int, date_str: str) -> None:
+    with get_connection() as conn:
+        conn.execute("UPDATE tasks SET reminded_on = ? WHERE id = ?", (date_str, task_id))
 
 
 def board_notify_user_ids(board_id: int, exclude: int | None = None) -> list[int]:

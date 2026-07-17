@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     login_max_attempts: int = 6
     login_lock_minutes: int = 15
 
+    # How often the due-date reminder sweep runs (seconds).
+    reminder_interval_seconds: int = 1800
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

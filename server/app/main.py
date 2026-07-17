@@ -11,7 +11,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, boards, db, push_routes, tasks
+import asyncio
+from datetime import datetime
+
+from . import auth, boards, db, push, push_routes, reminders, tasks
 from .config import settings
 from .ws import manager
 
@@ -32,8 +35,21 @@ app.include_router(push_routes.router)
 
 
 @app.on_event("startup")
-def _startup() -> None:
+async def _startup() -> None:
     db.init_db()
+    asyncio.create_task(_reminder_loop())
+
+
+async def _reminder_loop() -> None:
+    """Periodically notify about tasks due today (only when push is configured)."""
+    while True:
+        try:
+            if push.configured():
+                today = datetime.now().strftime("%Y-%m-%d")
+                await asyncio.to_thread(reminders.run_due_reminders, today)
+        except Exception:
+            pass
+        await asyncio.sleep(settings.reminder_interval_seconds)
 
 
 @app.get("/api/health")

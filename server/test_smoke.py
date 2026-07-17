@@ -98,6 +98,16 @@ with c:
     check("board owner can delete any comment",
           c.delete(f"/api/comments/{cid_bob}", headers=hdr).status_code == 200)
 
+    # ── due-date reminders ──
+    print("reminders")
+    import datetime as _dt
+    from app import reminders
+    today = _dt.date.today().isoformat()
+    c.post(f"/api/boards/{b1}/tasks", headers=hdr, json={"text": "Entregar informe", "due_date": today, "column_name": "ToDo"})
+    n = reminders.run_due_reminders(today)
+    check("reminder processed due-today task", n >= 1)
+    check("not reminded twice for same day", reminders.run_due_reminders(today) == 0)
+
     # ── push subscription ──
     print("push")
     check("public key endpoint", c.get("/api/push/public-key").status_code == 200)
