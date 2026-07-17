@@ -63,7 +63,9 @@ const T = {
     "ai.desc": "Describe tu proyecto y la IA lo desglosará en tareas siguiendo buenas prácticas.",
     "ai.placeholder": "Ej.: Montar una tienda online de café artesano con pagos y envíos…",
     "ai.generate": "Generar tareas", "ai.generating": "Generando…",
-    "ai.created": "{n} tareas creadas ✨"
+    "ai.created": "{n} tareas creadas ✨",
+    "offline.title": "📴 Sin conexión — trabajando en local",
+    "offline.pending": "· {n} cambios en cola", "offline.syncing": "Conexión restablecida — sincronizando…"
   },
   ca: {
     "brand": "Kanbanpy Pro",
@@ -120,7 +122,9 @@ const T = {
     "ai.desc": "Descriu el teu projecte i la IA el desglossarà en tasques seguint bones pràctiques.",
     "ai.placeholder": "Ex.: Muntar una botiga en línia de cafè artesà amb pagaments i enviaments…",
     "ai.generate": "Genera tasques", "ai.generating": "Generant…",
-    "ai.created": "{n} tasques creades ✨"
+    "ai.created": "{n} tasques creades ✨",
+    "offline.title": "📴 Sense connexió — treballant en local",
+    "offline.pending": "· {n} canvis a la cua", "offline.syncing": "Connexió restablerta — sincronitzant…"
   },
   en: {
     "brand": "Kanbanpy Pro",
@@ -177,7 +181,9 @@ const T = {
     "ai.desc": "Describe your project and AI will break it into tasks following best practices.",
     "ai.placeholder": "e.g. Launch an online store for artisan coffee with payments and shipping…",
     "ai.generate": "Generate tasks", "ai.generating": "Generating…",
-    "ai.created": "{n} tasks created ✨"
+    "ai.created": "{n} tasks created ✨",
+    "offline.title": "📴 Offline — working locally",
+    "offline.pending": "· {n} changes queued", "offline.syncing": "Back online — syncing…"
   }
 };
 

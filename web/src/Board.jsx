@@ -6,7 +6,7 @@ import {
   SortableContext, useSortable, arrayMove, verticalListSortingStrategy
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { api, connectLiveSync } from "./api.js";
+import { api, connectLiveSync, flushQueue, offline } from "./api.js";
 import { enablePush, disablePush, isPushEnabled, pushSupported } from "./push.js";
 import { useT, LANGS } from "./i18n.jsx";
 import TaskModal from "./TaskModal.jsx";
@@ -68,6 +68,8 @@ export default function Board({ user, onLogout }) {
   const [aiEnabled, setAiEnabled] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [online, setOnline] = useState(offline.isOnline());
+  const [pending, setPending] = useState(offline.queueSize());
   const [bg, setBg] = useState(readBg);
   const [query, setQuery] = useState("");
   const [fPrio, setFPrio] = useState("");
@@ -131,18 +133,70 @@ export default function Board({ user, onLogout }) {
     if (activeId) localStorage.setItem("kanban.board", String(activeId));
   }, [activeId]);
 
+  // Online/offline handling: flush queued mutations when the network returns.
+  useEffect(() => {
+    async function goOnline() {
+      setOnline(true);
+      if (offline.queueSize() > 0) {
+        setNotice(t("offline.syncing"));
+        await flushQueue().catch(() => {});
+        setPending(offline.queueSize());
+        await loadBoards();
+        await loadTasks();
+      }
+    }
+    function goOffline() {
+      setOnline(false);
+      setPending(offline.queueSize());
+    }
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, [t, loadBoards, loadTasks]);
+
+  // Optimistically reflect an offline change locally (the queue syncs on reconnect).
+  function localCreate(data) {
+    const task = {
+      id: -Date.now(), owner_id: user.id, ...data,
+      subtask_total: 0, subtask_done: 0, comment_count: 0
+    };
+    const col = data.column_name || "ToDo";
+    setBoard((prev) => ({ ...prev, [col]: [...(prev[col] || []), task] }));
+  }
+  function localEdit(id, data) {
+    setBoard((prev) => {
+      const next = { ToDo: [], Doing: [], Done: [] };
+      for (const k of COLUMN_KEYS) next[k] = (prev[k] || []).filter((t) => t.id !== id);
+      const merged = { id, owner_id: user.id, ...data };
+      const col = data.column_name || "ToDo";
+      next[col] = [...next[col], merged];
+      return next;
+    });
+  }
+
   async function handleSave(data, id) {
     try {
-      if (id) await api.updateTask(id, data);
-      else await api.createTask(activeId, data);
+      const res = id ? await api.updateTask(id, data) : await api.createTask(activeId, data);
       setEditing(null);
-      await loadTasks();
+      if (res?.queued) {
+        id ? localEdit(id, data) : localCreate(data);
+        setPending(offline.queueSize());
+      } else {
+        await loadTasks();
+      }
     } catch (err) { setError(err.message); }
   }
 
   async function act(promise) {
-    try { await promise; setEditing(null); await loadTasks(); }
-    catch (err) { setError(err.message); }
+    try {
+      await promise;
+      setEditing(null);
+      await loadTasks();
+      setPending(offline.queueSize());
+    } catch (err) { setError(err.message); }
   }
 
   // ── Drag & drop (touch-friendly, with within-column reordering) ──
@@ -187,7 +241,7 @@ export default function Board({ user, onLogout }) {
       COLUMN_KEYS.map((col) =>
         api.reorder({ board_id: activeId, column_name: col, ordered_ids: next[col].map((t) => t.id) })
       )
-    ).catch((e) => { setError(e.message); loadTasks(); });
+    ).then(() => setPending(offline.queueSize())).catch((e) => { setError(e.message); loadTasks(); });
   }
 
   return (
@@ -219,6 +273,11 @@ export default function Board({ user, onLogout }) {
         <button className="tab add" onClick={() => setSettingsFor({ isNew: true })}>{t("nav.newBoard")}</button>
       </nav>
 
+      {!online && (
+        <div className="banner warn-banner">
+          {t("offline.title")}{pending > 0 ? " " + t("offline.pending", { n: pending }) : ""}
+        </div>
+      )}
       {error && <div className="banner" onClick={() => setError("")}>{error} · {t("board.closeBanner")}</div>}
       {notice && <div className="banner ok-banner" onClick={() => setNotice("")}>{notice}</div>}
 

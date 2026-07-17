@@ -1,4 +1,5 @@
 // api.js - thin fetch wrapper around the Kanbanpy Pro REST API + live-sync socket.
+import * as offline from "./offline.js";
 
 const TOKEN_KEY = "kanban.token";
 
@@ -15,14 +16,30 @@ export const auth = {
   }
 };
 
-async function request(path, { method = "GET", body } = {}) {
+function authHeaders() {
   const headers = { "Content-Type": "application/json" };
   if (auth.token) headers.Authorization = `Bearer ${auth.token}`;
-  const res = await fetch(`/api${path}`, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body)
-  });
+  return headers;
+}
+
+async function request(path, { method = "GET", body } = {}) {
+  let res;
+  try {
+    res = await fetch(`/api${path}`, {
+      method,
+      headers: authHeaders(),
+      body: body === undefined ? undefined : JSON.stringify(body)
+    });
+  } catch {
+    // Network failure = offline. Queue mutations; serve GETs from cache.
+    if (method !== "GET") {
+      offline.enqueue({ method, path, body });
+      return { queued: true };
+    }
+    const cached = offline.cacheGet(path);
+    if (cached !== null) return cached;
+    throw new ApiError("Sin conexión y sin datos en caché.", 0);
+  }
   if (res.status === 401) {
     auth.clear();
     throw new ApiError("Session expired. Please sign in again.", 401);
@@ -36,8 +53,35 @@ async function request(path, { method = "GET", body } = {}) {
   if (!res.ok) {
     throw new ApiError(data?.detail || "Something went wrong.", res.status);
   }
+  if (method === "GET") offline.cacheSet(path, data);
   return data;
 }
+
+/** Replay queued offline mutations. Drops permanently-rejected ones (4xx),
+ *  keeps items that still can't reach the server. Returns how many were sent. */
+export async function flushQueue() {
+  const items = offline.readQueue();
+  if (!items.length) return 0;
+  const remaining = [];
+  let sent = 0;
+  for (const it of items) {
+    try {
+      const res = await fetch(`/api${it.path}`, {
+        method: it.method,
+        headers: authHeaders(),
+        body: it.body === undefined ? undefined : JSON.stringify(it.body)
+      });
+      if (res.status >= 500) remaining.push(it); // server hiccup → retry later
+      else sent++; // applied (2xx) or permanently rejected (4xx) → drop
+    } catch {
+      remaining.push(it); // still offline
+    }
+  }
+  offline.writeQueue(remaining);
+  return sent;
+}
+
+export { offline };
 
 export class ApiError extends Error {
   constructor(message, status) {
