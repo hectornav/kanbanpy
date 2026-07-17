@@ -1,11 +1,17 @@
 """
 ai.py - AI project planner. Turns a plain-language project idea into a
-structured set of Kanban tasks using Claude (Anthropic).
+structured set of Kanban tasks.
 
-The API key never leaves the server. Returns [] gracefully if unconfigured.
+Two providers, chosen via KANBAN_AI_PROVIDER:
+  * "anthropic" — Claude (cloud). API key stays server-side.
+  * "ollama"    — a local model on your NAS/host (no API key, fully private).
+
+Returns [] / raises gracefully if unconfigured.
 """
 import json
 import os
+import urllib.error
+import urllib.request
 
 from .config import settings
 
@@ -53,20 +59,30 @@ _SCHEMA = {
 
 
 def configured() -> bool:
+    if settings.ai_provider == "ollama":
+        return True  # reachability is checked when a plan is generated
     return bool(_HAS_ANTHROPIC and (settings.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")))
-
-
-def _client():
-    if settings.anthropic_api_key:
-        return anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    return anthropic.Anthropic()  # resolves ANTHROPIC_API_KEY / profile from env
 
 
 def generate_plan(idea: str) -> list[dict]:
     """Return a list of task dicts for the given project idea."""
     if not configured():
         raise RuntimeError("AI planner not configured")
-    response = _client().messages.create(
+    if settings.ai_provider == "ollama":
+        return _generate_ollama(idea)
+    return _generate_anthropic(idea)
+
+
+# ── Anthropic (Claude) ──────────────────────────────────────────────────────
+
+def _anthropic_client():
+    if settings.anthropic_api_key:
+        return anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    return anthropic.Anthropic()  # resolves ANTHROPIC_API_KEY / profile from env
+
+
+def _generate_anthropic(idea: str) -> list[dict]:
+    response = _anthropic_client().messages.create(
         model=settings.anthropic_model,
         max_tokens=4096,
         system=_SYSTEM,
@@ -74,5 +90,29 @@ def generate_plan(idea: str) -> list[dict]:
         output_config={"format": {"type": "json_schema", "schema": _SCHEMA}},
     )
     text = next((b.text for b in response.content if b.type == "text"), "{}")
-    data = json.loads(text)
-    return data.get("tasks", [])
+    return json.loads(text).get("tasks", [])
+
+
+# ── Ollama (local) ──────────────────────────────────────────────────────────
+
+def _generate_ollama(idea: str) -> list[dict]:
+    payload = {
+        "model": settings.ollama_model,
+        "messages": [
+            {"role": "system", "content": _SYSTEM},
+            {"role": "user", "content": f"Project idea:\n{idea.strip()}"},
+        ],
+        "stream": False,
+        "format": _SCHEMA,  # Ollama constrains output to this JSON schema
+        "options": {"temperature": 0.4},
+    }
+    req = urllib.request.Request(
+        settings.ollama_url.rstrip("/") + "/api/chat",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=180) as resp:
+        body = json.loads(resp.read())
+    content = body.get("message", {}).get("content", "{}")
+    return json.loads(content).get("tasks", [])

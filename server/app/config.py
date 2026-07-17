@@ -45,9 +45,14 @@ class Settings(BaseSettings):
     # How often the due-date reminder sweep runs (seconds).
     reminder_interval_seconds: int = 1800
 
-    # AI planner (Anthropic). Key stays server-side, never sent to the browser.
+    # AI planner. Provider is "anthropic" (Claude cloud) or "ollama" (self-hosted).
+    ai_provider: str = "anthropic"
+    # Anthropic — key stays server-side, never sent to the browser.
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-opus-4-8"
+    # Ollama — local models on your NAS/host (no API key, fully private).
+    ollama_url: str = "http://host.docker.internal:11434"
+    ollama_model: str = "llama3.1"
 
     @property
     def cors_origin_list(self) -> list[str]:
