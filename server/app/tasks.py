@@ -18,8 +18,8 @@ from .ws import manager
 router = APIRouter(prefix="/api", tags=["tasks"])
 
 
-async def _notify(user_id: int) -> None:
-    await manager.broadcast({"type": "board:changed", "by": user_id})
+async def _notify(user_id: int, org_id: int) -> None:
+    await manager.broadcast({"type": "board:changed", "by": user_id}, org_id)
 
 
 async def _push_new_task(board_id: int, actor: dict, text: str) -> None:
@@ -33,7 +33,7 @@ async def _push_new_task(board_id: int, actor: dict, text: str) -> None:
 
 @router.get("/boards/{board_id}/tasks")
 def board_tasks(board_id: int, archived: bool = False, current=Depends(get_current_user)):
-    tasks = db.get_board_tasks(current["id"], board_id, archived=archived)
+    tasks = db.get_board_tasks(current["id"], current["org_id"], board_id, archived=archived)
     if tasks is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "No access to this board.")
     return tasks
@@ -42,64 +42,64 @@ def board_tasks(board_id: int, archived: bool = False, current=Depends(get_curre
 @router.get("/users")
 def users(current=Depends(get_current_user)):
     """User directory for the board-sharing picker (id + username only)."""
-    return [u for u in db.list_users() if u["id"] != current["id"]]
+    return [u for u in db.list_users(current["org_id"]) if u["id"] != current["id"]]
 
 
 @router.post("/boards/{board_id}/tasks", status_code=status.HTTP_201_CREATED)
 async def create_task(board_id: int, task: TaskIn, current=Depends(get_current_user)):
-    task_id = db.create_task(current["id"], board_id, task.model_dump())
+    task_id = db.create_task(current["id"], current["org_id"], board_id, task.model_dump())
     if task_id is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "No access to this board.")
-    await _notify(current["id"])
+    await _notify(current["id"], current["org_id"])
     await _push_new_task(board_id, current, task.text)
     return {"id": task_id}
 
 
 @router.put("/tasks/{task_id}")
 async def update_task(task_id: int, task: TaskIn, current=Depends(get_current_user)):
-    if not db.update_task(task_id, current["id"], task.model_dump()):
+    if not db.update_task(task_id, current["id"], current["org_id"], task.model_dump()):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Cannot edit this task.")
-    await _notify(current["id"])
+    await _notify(current["id"], current["org_id"])
     return {"detail": "updated"}
 
 
 @router.post("/tasks/{task_id}/move")
 async def move_task(task_id: int, req: MoveRequest, current=Depends(get_current_user)):
-    if not db.move_task(task_id, current["id"], req.column_name, req.sort_order):
+    if not db.move_task(task_id, current["id"], current["org_id"], req.column_name, req.sort_order):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Cannot move this task.")
-    await _notify(current["id"])
+    await _notify(current["id"], current["org_id"])
     return {"detail": "moved"}
 
 
 @router.post("/columns/reorder")
 async def reorder(req: ReorderRequest, current=Depends(get_current_user)):
-    if not db.reorder_column(current["id"], req.board_id, req.column_name, req.ordered_ids):
+    if not db.reorder_column(current["id"], current["org_id"], req.board_id, req.column_name, req.ordered_ids):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid board or column.")
-    await _notify(current["id"])
+    await _notify(current["id"], current["org_id"])
     return {"detail": "reordered"}
 
 
 @router.post("/tasks/{task_id}/archive")
 async def archive_task(task_id: int, current=Depends(get_current_user)):
-    if not db.set_archived(task_id, current["id"], True):
+    if not db.set_archived(task_id, current["id"], current["org_id"], True):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Cannot archive this task.")
-    await _notify(current["id"])
+    await _notify(current["id"], current["org_id"])
     return {"detail": "archived"}
 
 
 @router.post("/tasks/{task_id}/restore")
 async def restore_task(task_id: int, current=Depends(get_current_user)):
-    if not db.set_archived(task_id, current["id"], False):
+    if not db.set_archived(task_id, current["id"], current["org_id"], False):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Cannot restore this task.")
-    await _notify(current["id"])
+    await _notify(current["id"], current["org_id"])
     return {"detail": "restored"}
 
 
 @router.delete("/tasks/{task_id}")
 async def delete_task(task_id: int, current=Depends(get_current_user)):
-    if not db.delete_task(task_id, current["id"]):
+    if not db.delete_task(task_id, current["id"], current["org_id"]):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only delete your own tasks.")
-    await _notify(current["id"])
+    await _notify(current["id"], current["org_id"])
     return {"detail": "deleted"}
 
 
@@ -107,7 +107,7 @@ async def delete_task(task_id: int, current=Depends(get_current_user)):
 
 @router.get("/tasks/{task_id}")
 def task_detail(task_id: int, current=Depends(get_current_user)):
-    detail = db.get_task_detail(task_id, current["id"])
+    detail = db.get_task_detail(task_id, current["id"], current["org_id"])
     if detail is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "No access to this task.")
     return detail
@@ -115,41 +115,41 @@ def task_detail(task_id: int, current=Depends(get_current_user)):
 
 @router.post("/tasks/{task_id}/subtasks", status_code=status.HTTP_201_CREATED)
 async def add_subtask(task_id: int, req: SubtaskIn, current=Depends(get_current_user)):
-    sid = db.add_subtask(task_id, current["id"], req.text)
+    sid = db.add_subtask(task_id, current["id"], current["org_id"], req.text)
     if sid is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "No access to this task.")
-    await _notify(current["id"])
+    await _notify(current["id"], current["org_id"])
     return {"id": sid}
 
 
 @router.put("/subtasks/{subtask_id}")
 async def update_subtask(subtask_id: int, req: SubtaskUpdate, current=Depends(get_current_user)):
-    if not db.update_subtask(subtask_id, current["id"], req.text, req.done):
+    if not db.update_subtask(subtask_id, current["id"], current["org_id"], req.text, req.done):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "No access to this subtask.")
-    await _notify(current["id"])
+    await _notify(current["id"], current["org_id"])
     return {"detail": "updated"}
 
 
 @router.delete("/subtasks/{subtask_id}")
 async def delete_subtask(subtask_id: int, current=Depends(get_current_user)):
-    if not db.delete_subtask(subtask_id, current["id"]):
+    if not db.delete_subtask(subtask_id, current["id"], current["org_id"]):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "No access to this subtask.")
-    await _notify(current["id"])
+    await _notify(current["id"], current["org_id"])
     return {"detail": "deleted"}
 
 
 @router.post("/tasks/{task_id}/comments", status_code=status.HTTP_201_CREATED)
 async def add_comment(task_id: int, req: CommentIn, current=Depends(get_current_user)):
-    cid = db.add_comment(task_id, current["id"], req.body)
+    cid = db.add_comment(task_id, current["id"], current["org_id"], req.body)
     if cid is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "No access to this task.")
-    await _notify(current["id"])
+    await _notify(current["id"], current["org_id"])
     return {"id": cid}
 
 
 @router.delete("/comments/{comment_id}")
 async def delete_comment(comment_id: int, current=Depends(get_current_user)):
-    if not db.delete_comment(comment_id, current["id"]):
+    if not db.delete_comment(comment_id, current["id"], current["org_id"]):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Cannot delete this comment.")
-    await _notify(current["id"])
+    await _notify(current["id"], current["org_id"])
     return {"detail": "deleted"}

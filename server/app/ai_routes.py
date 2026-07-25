@@ -67,7 +67,7 @@ async def ai_plan(board_id: int, req: AiPlanRequest, current=Depends(get_current
     if not ai.configured(current["org_id"]):
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
                             "El planificador con IA no está configurado en el servidor.")
-    if not db.can_access_board(current["id"], board_id):
+    if not db.can_access_board(current["id"], current["org_id"], board_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "No access to this board.")
 
     try:
@@ -78,7 +78,7 @@ async def ai_plan(board_id: int, req: AiPlanRequest, current=Depends(get_current
     created = 0
     for task in tasks:
         if task.get("text"):
-            if db.create_task(current["id"], board_id, task) is not None:
+            if db.create_task(current["id"], current["org_id"], board_id, task) is not None:
                 created += 1
-    await manager.broadcast({"type": "board:changed", "by": current["id"]})
+    await manager.broadcast({"type": "board:changed", "by": current["id"]}, current["org_id"])
     return {"created": created}
