@@ -42,7 +42,9 @@ _SYSTEM = (
     "- 6 to 14 concrete, actionable tasks (verb-first titles).\n"
     "- Sequence them logically and set realistic priorities (High/Medium/Low).\n"
     "- Most tasks start in the 'ToDo' column; only put a task in 'Doing'/'Done' if the "
-    "idea clearly implies it is already underway or finished.\n"
+    "idea clearly implies it is already underway or finished. Use 'Backlog' only for "
+    "tasks that are clearly lower-priority, speculative, or not part of the immediate "
+    "next steps.\n"
     "- Add 1-3 short tags per task to group related work.\n"
     "- Give each task a one-sentence description with the concrete outcome.\n"
     "- Avoid vague tasks ('work on X'); make each independently checkable.\n"
@@ -60,7 +62,7 @@ _SCHEMA = {
                     "text": {"type": "string"},
                     "description": {"type": "string"},
                     "priority": {"type": "string", "enum": ["High", "Medium", "Low"]},
-                    "column_name": {"type": "string", "enum": ["ToDo", "Doing", "Done"]},
+                    "column_name": {"type": "string", "enum": ["Backlog", "ToDo", "Doing", "Done"]},
                     "tags": {"type": "array", "items": {"type": "string"}},
                 },
                 "required": ["text", "description", "priority", "column_name", "tags"],
@@ -76,7 +78,7 @@ _SCHEMA = {
 _SYSTEM_JSON = _SYSTEM + (
     "\n\nReturn ONLY a JSON object (no prose, no markdown) of the form:\n"
     '{"tasks": [{"text": string, "description": string, '
-    '"priority": "High|Medium|Low", "column_name": "ToDo|Doing|Done", "tags": [string]}]}'
+    '"priority": "High|Medium|Low", "column_name": "Backlog|ToDo|Doing|Done", "tags": [string]}]}'
 )
 
 

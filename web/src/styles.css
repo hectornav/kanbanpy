@@ -24,6 +24,7 @@
   --todo: #f0b34a;
   --doing: #6d8bff;
   --done: #37d69f;
+  --backlog: #8a93a6;
   --danger: #f2555a;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.4);
 }
@@ -46,6 +47,7 @@
   --todo: #d97706;
   --doing: #2f5fe0;
   --done: #0a9d5f;
+  --backlog: #64748b;
   --danger: #dc2626;
   --shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 12px 32px rgba(15, 23, 42, 0.10);
 }
@@ -69,6 +71,7 @@
   --todo: #ffb347;
   --doing: #ff8a5c;
   --done: #4fd6b0;
+  --backlog: #a89a8a;
   --danger: #f2555a;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 12px 32px rgba(0, 0, 0, 0.45);
 }
@@ -155,7 +158,10 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 .ok-tag { font-size: 11px; color: var(--done); font-weight: 600; }
 
 .board-scroll { flex: 1; overflow: auto; padding: 20px; }
-.board-grid { display: grid; grid-template-columns: repeat(3, minmax(240px, 1fr)); gap: 16px; max-width: 1200px; margin: 0 auto; min-height: 100%; }
+.board-grid { display: grid; grid-template-columns: repeat(4, minmax(220px, 1fr)); gap: 16px; max-width: 1440px; margin: 0 auto; min-height: 100%; }
+/* Column-switcher tabs — mobile only (see @media 720px). On wider screens
+   all 4 columns already render side by side, so there's nothing to switch. */
+.mobile-col-tabs { display: none; }
 .board-col { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; }
 .col-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 10px; border-bottom: 1px solid var(--border); }
 .col-title { font-size: 13px; font-weight: 600; color: var(--accent); }
@@ -176,6 +182,10 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
   transition: transform 0.16s ease, box-shadow 0.2s ease, border-color 0.2s ease;
   cursor: grab;
+  /* dnd-kit's TouchSensor (180ms long-press) was fighting iOS Safari's own
+     scroll/pinch-zoom gestures on the card with no touch-action set at all —
+     the most likely cause of drag feeling "broken"/erratic on phones. */
+  touch-action: manipulation;
 }
 /* Soft sheen across the top so the color reads as a surface, not a flat fill. */
 .card::before {
@@ -193,6 +203,25 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 .card-ToDo { --c: var(--todo); }
 .card-Doing { --c: var(--doing); }
 .card-Done { --c: var(--done); }
+.card-Backlog { --c: var(--backlog); }
+
+/* Backlog cards read as "not yet in motion" — flatter, slightly tilted like
+   an actual sticky note, with a folded top-right corner, instead of the
+   diagonal-sheen treatment the 3 active-workflow columns get. */
+.card-Backlog {
+  background: color-mix(in srgb, var(--backlog) 20%, var(--card));
+  transform: rotate(var(--tilt, -1deg));
+}
+.card-Backlog::before { display: none; }
+.card-Backlog::after {
+  content: ""; position: absolute; top: 0; right: 0; width: 0; height: 0;
+  border-style: solid; border-width: 0 13px 13px 0;
+  border-color: transparent color-mix(in srgb, var(--backlog) 55%, var(--ground)) transparent transparent;
+}
+.card-Backlog:hover { transform: rotate(0deg) translateY(-2px); }
+.card-Backlog:nth-child(3n+1) { --tilt: -1.6deg; }
+.card-Backlog:nth-child(3n+2) { --tilt: 1.1deg; }
+.card-Backlog:nth-child(3n+3) { --tilt: -0.5deg; }
 .card-text { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.35; position: relative; }
 .card-meta { display: flex; align-items: center; gap: 6px; margin-top: 9px; flex-wrap: wrap; }
 .prio { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
@@ -269,7 +298,7 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 .archive-date { font-size: 11px; color: var(--faint); white-space: nowrap; }
 .archive-actions { display: flex; gap: 8px; flex: none; }
 .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
-.dot-ToDo { background: var(--todo); } .dot-Doing { background: var(--doing); } .dot-Done { background: var(--done); }
+.dot-Backlog { background: var(--backlog); } .dot-ToDo { background: var(--todo); } .dot-Doing { background: var(--doing); } .dot-Done { background: var(--done); }
 .empty { text-align: center; color: var(--muted); font-size: 14px; padding: 48px 20px; }
 
 /* ── Card archive button ────────────────────────────────────────────── */
@@ -280,6 +309,32 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 }
 .card:hover .card-archive { opacity: 1; }
 .card-archive:hover { color: var(--done); border-color: var(--done); }
+
+/* ── Card "move to" quick action ──────────────────────────────────────
+   Cross-column drag on a narrow phone (no auto-scroll, nested scroll
+   containers, the target column often off-screen) is unreliable — this is
+   the primary way to change a card's column on mobile; drag stays for
+   reordering within the visible column, and works as before on desktop. */
+.card-kebab {
+  position: absolute; top: 8px; right: 34px; width: 22px; height: 22px; border-radius: 6px;
+  border: 1px solid var(--border-strong); background: color-mix(in srgb, var(--card) 70%, transparent);
+  color: var(--muted); font-size: 14px; line-height: 1; opacity: 0; transition: opacity 0.14s, color 0.14s;
+}
+.card:hover .card-kebab { opacity: 1; }
+.card-kebab:hover { color: var(--accent); border-color: var(--accent); }
+.card-move-menu {
+  position: absolute; top: 34px; right: 8px; z-index: 30; min-width: 136px;
+  background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  padding: 4px; box-shadow: var(--shadow);
+}
+.card-move-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--faint); padding: 5px 8px 3px; }
+.card-move-menu button {
+  display: flex; align-items: center; gap: 7px; width: 100%; padding: 7px 8px;
+  background: none; border: none; color: var(--ink); font-size: 12.5px; font-weight: 500;
+  text-align: left; border-radius: 6px; font-family: inherit;
+}
+.card-move-menu button:hover { background: var(--surface); }
+.card-move-menu .sw { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 
 /* ── Board color picker (settings) ──────────────────────────────────── */
 .color-row { display: flex; gap: 9px; }
@@ -304,6 +359,31 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
   .auth-brand { display: none; }
   .board-grid { grid-template-columns: 1fr; max-width: 520px; }
   .card-archive { opacity: 1; }
+  .card-kebab { opacity: 1; }
+
+  /* One column visible at a time instead of stacking all 4 into one long
+     scroll — switched via .mobile-col-tabs (rendered in Board.jsx). Cards
+     stay fully mounted/droppable, so reordering within the visible column
+     still works exactly as on desktop; cross-column moves go through the
+     "⋮ Mover a" quick action instead of dragging across an off-screen
+     column (there's no auto-scroll-while-dragging implemented). */
+  .board-col { display: none; }
+  .board-col.mobile-active { display: flex; }
+  .mobile-col-tabs {
+    display: flex; gap: 4px; max-width: 520px; margin: 0 auto 12px; overflow-x: auto;
+  }
+  .mobile-col-tab {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding: 8px 6px; border-radius: 10px; font-size: 11px; font-weight: 700;
+    color: var(--muted); background: var(--surface); border: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .mobile-col-tab .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--tc); opacity: 0.5; }
+  .mobile-col-tab.active {
+    color: var(--ink); background: color-mix(in srgb, var(--tc) 16%, transparent);
+    border-color: color-mix(in srgb, var(--tc) 55%, transparent);
+  }
+  .mobile-col-tab.active .dot { opacity: 1; }
 
   /* Header rows wrap/scroll instead of overflowing the viewport. */
   body { overflow-x: hidden; }
@@ -412,7 +492,7 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 .cal-day { font-size: 11px; color: var(--muted); font-weight: 600; }
 .cal-cell.today .cal-day { color: var(--accent); }
 .cal-task { text-align: left; font-size: 11px; border: none; border-radius: 6px; padding: 3px 6px; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: var(--doing); }
-.cal-ToDo { background: var(--todo); } .cal-Doing { background: var(--doing); } .cal-Done { background: var(--done); }
+.cal-Backlog { background: var(--backlog); } .cal-ToDo { background: var(--todo); } .cal-Doing { background: var(--doing); } .cal-Done { background: var(--done); }
 .cal-nodate { margin-top: 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .cal-nodate .lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
 

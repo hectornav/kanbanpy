@@ -3,7 +3,7 @@ import { api } from "./api.js";
 import { useT } from "./i18n.jsx";
 
 const PRIOS = ["High", "Medium", "Low"];
-const COL_KEYS = ["ToDo", "Doing", "Done"];
+const COL_KEYS = ["Backlog", "ToDo", "Doing", "Done"];
 const VERB_KEY = { created: "act.created", edited: "act.edited", moved: "act.moved", archived: "act.archived", restored: "act.restored", deleted: "act.deleted" };
 
 export default function TaskModal({ task, users, currentUser, canDelete, canArchive, onClose, onSave, onDelete, onArchive }) {

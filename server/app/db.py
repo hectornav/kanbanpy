@@ -16,7 +16,7 @@ from datetime import date, datetime, timezone
 from .config import settings
 from .security import hash_secret, verify_secret
 
-COLUMNS = ("ToDo", "Doing", "Done")
+COLUMNS = ("Backlog", "ToDo", "Doing", "Done")
 DEFAULT_BOARD_NAME = "Mi tablero"
 
 
