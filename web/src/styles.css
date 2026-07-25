@@ -187,6 +187,12 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
      the most likely cause of drag feeling "broken"/erratic on phones. */
   touch-action: manipulation;
 }
+/* .card's own overflow:hidden (needed so ::before's sheen respects the
+   rounded corners) was clipping the "move to" menu on short cards —
+   confirmed via Playwright: menu options existed in the DOM but were
+   visually cut off and unclickable. Lift the clip only while the menu for
+   THIS card is open. */
+.card.menu-open { overflow: visible; z-index: 5; }
 /* Soft sheen across the top so the color reads as a surface, not a flat fill. */
 .card::before {
   content: ""; position: absolute; inset: 0 0 auto 0; height: 46%;
@@ -306,6 +312,13 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
   position: absolute; top: 8px; right: 8px; width: 22px; height: 22px; border-radius: 6px;
   border: 1px solid var(--border-strong); background: color-mix(in srgb, var(--card) 70%, transparent);
   color: var(--muted); font-size: 12px; line-height: 1; opacity: 0; transition: opacity 0.14s, color 0.14s;
+  /* .card-text is `position: relative` (so it paints above ::before's
+     sheen) and comes later in the DOM — with both at the implicit z-index
+     ("auto"), source order decides ties, so a long/wrapping title was
+     silently painting over this button and swallowing clicks on it.
+     Confirmed via Playwright's elementFromPoint on the (identical) new
+     .card-kebab button below; same fix applies here. */
+  z-index: 2;
 }
 .card:hover .card-archive { opacity: 1; }
 .card-archive:hover { color: var(--done); border-color: var(--done); }
@@ -319,6 +332,7 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
   position: absolute; top: 8px; right: 34px; width: 22px; height: 22px; border-radius: 6px;
   border: 1px solid var(--border-strong); background: color-mix(in srgb, var(--card) 70%, transparent);
   color: var(--muted); font-size: 14px; line-height: 1; opacity: 0; transition: opacity 0.14s, color 0.14s;
+  z-index: 2; /* see .card-archive's z-index comment — same fix, same reason */
 }
 .card:hover .card-kebab { opacity: 1; }
 .card-kebab:hover { color: var(--accent); border-color: var(--accent); }

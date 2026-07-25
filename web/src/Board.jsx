@@ -461,7 +461,7 @@ function SortableCard({ task, hidden, isOwner, onClick, onArchive, onMoveTo }) {
   const otherCols = COLUMNS.filter((c) => c.key !== task.column_name);
   return (
     <article ref={setNodeRef} style={style} {...attributes} {...listeners}
-      className={`card card-${task.column_name}${hidden ? " card-hidden" : ""}`}
+      className={`card card-${task.column_name}${hidden ? " card-hidden" : ""}${showMove ? " menu-open" : ""}`}
       onClick={() => { setShowMove(false); onClick(); }}
       onKeyDown={(e) => e.key === "Enter" && onClick()}>
       <button className="card-archive" title={t("common.archive")}
