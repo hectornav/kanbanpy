@@ -1,7 +1,9 @@
 """
 schemas.py - Pydantic request/response models for the API.
 """
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from pydantic import BaseModel, Field, model_validator
 
 
 class RegisterRequest(BaseModel):
@@ -9,6 +11,17 @@ class RegisterRequest(BaseModel):
     password: str = Field(min_length=4, max_length=256)
     security_q: str = ""
     security_a: str = ""
+    org_mode: Literal["create", "join"] = "create"
+    org_name: str = Field(default="", max_length=80)
+    invite_code: str = Field(default="", max_length=16)
+
+    @model_validator(mode="after")
+    def _check_org_fields(self):
+        if self.org_mode == "create" and not self.org_name.strip():
+            raise ValueError("Organization name is required.")
+        if self.org_mode == "join" and not self.invite_code.strip():
+            raise ValueError("Invite code is required.")
+        return self
 
 
 class LoginRequest(BaseModel):
@@ -25,6 +38,9 @@ class ForgotResetRequest(BaseModel):
 class UserOut(BaseModel):
     id: int
     username: str
+    org_id: int
+    org_name: str
+    is_org_admin: bool
 
 
 class TokenResponse(BaseModel):

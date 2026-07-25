@@ -11,6 +11,7 @@ Connects to the shared postgres-shared container (see
 """
 import calendar
 import os
+import secrets
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
 
@@ -18,6 +19,10 @@ import psycopg2
 import psycopg2.extras
 
 from .security import hash_secret, verify_secret
+
+# Unambiguous alphabet for invite codes (no 0/O/1/I) — meant to be read aloud
+# or typed by hand.
+_INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 COLUMNS = ("Backlog", "ToDo", "Doing", "Done")
 DEFAULT_BOARD_NAME = "Mi tablero"
@@ -104,18 +109,28 @@ def init_db() -> None:
     with get_connection() as conn:
         conn.executescript(
             """
+            CREATE TABLE IF NOT EXISTS organizations (
+                id           SERIAL PRIMARY KEY,
+                name         TEXT NOT NULL,
+                invite_code  TEXT NOT NULL UNIQUE,
+                created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+
             CREATE TABLE IF NOT EXISTS users (
                 id             SERIAL PRIMARY KEY,
                 username       TEXT    NOT NULL UNIQUE,
                 password_hash  TEXT    NOT NULL,
                 security_q     TEXT    DEFAULT '',
                 security_a     TEXT    DEFAULT '',
+                org_id         INTEGER REFERENCES organizations(id),
+                is_org_admin   BOOLEAN NOT NULL DEFAULT FALSE,
                 created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
             );
 
             CREATE TABLE IF NOT EXISTS boards (
                 id          SERIAL PRIMARY KEY,
                 owner_id    INTEGER NOT NULL REFERENCES users(id),
+                org_id      INTEGER REFERENCES organizations(id),
                 name        TEXT    NOT NULL,
                 color       TEXT    DEFAULT '#5b8cff',
                 is_shared   INTEGER DEFAULT 0,
@@ -191,8 +206,9 @@ def init_db() -> None:
             );
 
             CREATE TABLE IF NOT EXISTS settings (
-                key    TEXT PRIMARY KEY,
-                value  TEXT NOT NULL
+                org_id  INTEGER REFERENCES organizations(id),
+                key     TEXT NOT NULL,
+                value   TEXT NOT NULL
             );
 
             CREATE INDEX IF NOT EXISTS idx_members_user ON board_members(user_id);
@@ -201,9 +217,79 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_subtasks_task ON subtasks(task_id);
             CREATE INDEX IF NOT EXISTS idx_comments_task ON comments(task_id);
             CREATE INDEX IF NOT EXISTS idx_tasks_board ON tasks(board_id);
+
+            -- CREATE TABLE IF NOT EXISTS is a no-op on tables that already
+            -- existed before organizations were introduced (Phase A), so the
+            -- org_id/is_org_admin columns above never land on them without
+            -- these explicit ALTERs.
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id);
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS is_org_admin BOOLEAN NOT NULL DEFAULT FALSE;
+            ALTER TABLE boards ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id);
+            ALTER TABLE settings ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id);
+
+            CREATE INDEX IF NOT EXISTS idx_users_org ON users(org_id);
+            CREATE INDEX IF NOT EXISTS idx_boards_org ON boards(org_id);
             """
         )
         _migrate_orphan_tasks(conn)
+        _bootstrap_default_org(conn)
+        conn.executescript(
+            """
+            ALTER TABLE users ALTER COLUMN org_id SET NOT NULL;
+            ALTER TABLE boards ALTER COLUMN org_id SET NOT NULL;
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'settings_pkey' AND conrelid = 'settings'::regclass
+                ) THEN
+                    ALTER TABLE settings DROP CONSTRAINT settings_pkey;
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'settings_pkey' AND conrelid = 'settings'::regclass
+                ) THEN
+                    ALTER TABLE settings ADD CONSTRAINT settings_pkey PRIMARY KEY (org_id, key);
+                END IF;
+            END $$;
+            """
+        )
+
+
+def _generate_invite_code(conn) -> str:
+    """A short, human-shareable code (no ambiguous characters), unique among orgs."""
+    while True:
+        code = "".join(secrets.choice(_INVITE_ALPHABET) for _ in range(8))
+        exists = conn.execute(
+            "SELECT 1 FROM organizations WHERE invite_code = %s", (code,)
+        ).fetchone()
+        if not exists:
+            return code
+
+
+def _bootstrap_default_org(conn) -> None:
+    """Fold any pre-organizations users/boards (from before this feature existed)
+    into one default org, so existing accounts keep working unmodified. The
+    lowest-id user becomes that org's admin, mirroring the old instance-wide
+    "first user is admin" rule this replaces. No-op once every user has an org.
+    """
+    orphans = conn.execute(
+        "SELECT id FROM users WHERE org_id IS NULL ORDER BY id"
+    ).fetchall()
+    if not orphans:
+        return
+    cur = conn.execute(
+        "INSERT INTO organizations (name, invite_code, created_at) VALUES (%s,%s,%s) RETURNING id",
+        ("Mi organización", _generate_invite_code(conn), _now()),
+    )
+    org_id = cur.fetchone()["id"]
+    admin_id = orphans[0]["id"]
+    for row in orphans:
+        conn.execute(
+            "UPDATE users SET org_id = %s, is_org_admin = %s WHERE id = %s",
+            (org_id, row["id"] == admin_id, row["id"]),
+        )
+    conn.execute("UPDATE boards SET org_id = %s WHERE org_id IS NULL", (org_id,))
 
 
 def _migrate_orphan_tasks(conn) -> None:
@@ -250,23 +336,41 @@ def _task_to_dict(row) -> dict:
 
 # ── Users ────────────────────────────────────────────────────────────────────
 
-def create_user(username: str, password: str, security_q: str = "", security_a: str = "") -> tuple[bool, str]:
+def create_user(username: str, password: str, security_q: str = "", security_a: str = "",
+                org_mode: str = "create", org_name: str = "", invite_code: str = "") -> tuple[bool, str]:
     username = username.strip()
     if not username or not password:
         return False, "Username and password cannot be empty."
     answer_hash = hash_secret(security_a.strip().lower()) if security_a.strip() else ""
     try:
         with get_connection() as conn:
+            if org_mode == "join":
+                org = conn.execute(
+                    "SELECT id FROM organizations WHERE invite_code = %s",
+                    (invite_code.strip().upper(),),
+                ).fetchone()
+                if not org:
+                    return False, "Invalid invite code."
+                org_id = org["id"]
+                is_org_admin = False
+            else:
+                cur = conn.execute(
+                    "INSERT INTO organizations (name, invite_code, created_at) VALUES (%s,%s,%s) RETURNING id",
+                    (org_name.strip() or f"{username}'s organization", _generate_invite_code(conn), _now()),
+                )
+                org_id = cur.fetchone()["id"]
+                is_org_admin = True
+
             cur = conn.execute(
-                "INSERT INTO users (username, password_hash, security_q, security_a, created_at) "
-                "VALUES (%s,%s,%s,%s,%s) RETURNING id",
-                (username, hash_secret(password), security_q.strip(), answer_hash, _now()),
+                "INSERT INTO users (username, password_hash, security_q, security_a, org_id, is_org_admin, created_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+                (username, hash_secret(password), security_q.strip(), answer_hash, org_id, is_org_admin, _now()),
             )
             user_id = cur.fetchone()["id"]
             # Every new user starts with a default board.
             conn.execute(
-                "INSERT INTO boards (owner_id, name, position, created_at) VALUES (%s,%s,%s,%s)",
-                (user_id, DEFAULT_BOARD_NAME, 0, _now()),
+                "INSERT INTO boards (owner_id, org_id, name, position, created_at) VALUES (%s,%s,%s,%s,%s)",
+                (user_id, org_id, DEFAULT_BOARD_NAME, 0, _now()),
             )
         return True, "User registered."
     except psycopg2.IntegrityError:
@@ -281,7 +385,11 @@ def get_user_by_username(username: str) -> dict | None:
 
 def get_user_by_id(user_id: int) -> dict | None:
     with get_connection() as conn:
-        row = conn.execute("SELECT id, username FROM users WHERE id = %s", (user_id,)).fetchone()
+        row = conn.execute(
+            "SELECT u.id, u.username, u.org_id, u.is_org_admin, o.name AS org_name "
+            "FROM users u LEFT JOIN organizations o ON o.id = u.org_id WHERE u.id = %s",
+            (user_id,),
+        ).fetchone()
     return dict(row) if row else None
 
 
@@ -289,7 +397,7 @@ def authenticate(username: str, password: str) -> dict | None:
     user = get_user_by_username(username)
     if not user or not verify_secret(password, user["password_hash"]):
         return None
-    return {"id": user["id"], "username": user["username"]}
+    return get_user_by_id(user["id"])
 
 
 def get_security_question(username: str) -> str | None:
@@ -333,7 +441,7 @@ def _board_access(conn, board_id: int, user_id: int):
     ).fetchone()
 
 
-def ensure_default_board(user_id: int) -> int:
+def ensure_default_board(user_id: int, org_id: int) -> int:
     with get_connection() as conn:
         row = conn.execute(
             "SELECT id FROM boards WHERE owner_id = %s ORDER BY position, id LIMIT 1", (user_id,)
@@ -341,8 +449,8 @@ def ensure_default_board(user_id: int) -> int:
         if row:
             return row["id"]
         cur = conn.execute(
-            "INSERT INTO boards (owner_id, name, position, created_at) VALUES (%s,%s,%s,%s) RETURNING id",
-            (user_id, DEFAULT_BOARD_NAME, 0, _now()),
+            "INSERT INTO boards (owner_id, org_id, name, position, created_at) VALUES (%s,%s,%s,%s,%s) RETURNING id",
+            (user_id, org_id, DEFAULT_BOARD_NAME, 0, _now()),
         )
         return cur.fetchone()["id"]
 
@@ -367,15 +475,15 @@ def list_boards(user_id: int) -> list[dict]:
     return boards
 
 
-def create_board(owner_id: int, name: str, color: str = "#5b8cff") -> int:
+def create_board(owner_id: int, org_id: int, name: str, color: str = "#5b8cff") -> int:
     name = (name or "").strip() or "Nuevo tablero"
     with get_connection() as conn:
         pos = conn.execute(
             "SELECT COALESCE(MAX(position), -1) + 1 AS n FROM boards WHERE owner_id = %s", (owner_id,)
         ).fetchone()["n"]
         cur = conn.execute(
-            "INSERT INTO boards (owner_id, name, color, position, created_at) VALUES (%s,%s,%s,%s,%s) RETURNING id",
-            (owner_id, name, color, pos, _now()),
+            "INSERT INTO boards (owner_id, org_id, name, color, position, created_at) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
+            (owner_id, org_id, name, color, pos, _now()),
         )
         return cur.fetchone()["id"]
 
@@ -420,26 +528,22 @@ def delete_board(board_id: int, owner_id: int) -> bool:
 
 # ── Settings & admin ────────────────────────────────────────────────────────
 
-def get_setting(key: str, default: str = "") -> str:
+def get_setting(org_id: int, key: str, default: str = "") -> str:
     with get_connection() as conn:
-        row = conn.execute("SELECT value FROM settings WHERE key = %s", (key,)).fetchone()
+        row = conn.execute(
+            "SELECT value FROM settings WHERE org_id = %s AND key = %s", (org_id, key)
+        ).fetchone()
     return row["value"] if row else default
 
 
-def set_setting(key: str, value: str) -> None:
+def set_setting(org_id: int, key: str, value: str) -> None:
     with get_connection() as conn:
         conn.execute(
-            "INSERT INTO settings (key, value) VALUES (%s, %s) "
-            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (key, value),
+            "INSERT INTO settings (org_id, key, value) VALUES (%s, %s, %s) "
+            "ON CONFLICT(org_id, key) DO UPDATE SET value = excluded.value",
+            (org_id, key, value),
         )
 
-
-def is_admin(user_id: int) -> bool:
-    """The first registered user (lowest id) is the instance admin."""
-    with get_connection() as conn:
-        row = conn.execute("SELECT MIN(id) AS m FROM users").fetchone()
-    return bool(row and row["m"] == user_id)
 
 
 def can_access_board(user_id: int, board_id: int) -> bool:
