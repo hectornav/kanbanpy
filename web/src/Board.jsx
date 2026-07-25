@@ -15,11 +15,13 @@ import ActivityPanel from "./ActivityPanel.jsx";
 import AiPlanModal from "./AiPlanModal.jsx";
 
 const COLUMNS = [
+  { key: "Backlog", accent: "var(--backlog)" },
   { key: "ToDo", accent: "var(--todo)" },
   { key: "Doing", accent: "var(--doing)" },
   { key: "Done", accent: "var(--done)" }
 ];
 const COLUMN_KEYS = COLUMNS.map((c) => c.key);
+const EMPTY_BOARD = Object.fromEntries(COLUMN_KEYS.map((k) => [k, []]));
 
 const THEMES = [
   { id: "nocturne", chips: ["#0d1017", "#6d8bff", "#37d69f"] },
@@ -57,7 +59,8 @@ export default function Board({ user, onLogout }) {
   const { t } = useT();
   const [boards, setBoards] = useState([]);
   const [activeId, setActiveId] = useState(() => Number(localStorage.getItem("kanban.board")) || null);
-  const [board, setBoard] = useState({ ToDo: [], Doing: [], Done: [] });
+  const [board, setBoard] = useState(EMPTY_BOARD);
+  const [mobileCol, setMobileCol] = useState(() => localStorage.getItem("kanban.mobileCol") || COLUMN_KEYS[0]);
   const [archived, setArchived] = useState([]);
   const [view, setView] = useState("board");
   const [users, setUsers] = useState([]);
@@ -133,6 +136,10 @@ export default function Board({ user, onLogout }) {
     if (activeId) localStorage.setItem("kanban.board", String(activeId));
   }, [activeId]);
 
+  useEffect(() => {
+    localStorage.setItem("kanban.mobileCol", mobileCol);
+  }, [mobileCol]);
+
   // Online/offline handling: flush queued mutations when the network returns.
   useEffect(() => {
     async function goOnline() {
@@ -168,7 +175,7 @@ export default function Board({ user, onLogout }) {
   }
   function localEdit(id, data) {
     setBoard((prev) => {
-      const next = { ToDo: [], Doing: [], Done: [] };
+      const next = { ...EMPTY_BOARD };
       for (const k of COLUMN_KEYS) next[k] = (prev[k] || []).filter((t) => t.id !== id);
       const merged = { id, owner_id: user.id, ...data };
       const col = data.column_name || "ToDo";
@@ -224,16 +231,21 @@ export default function Board({ user, onLogout }) {
     if (!over) return;
     const to = findContainer(over.id);
     if (!to) return;
+    // Compute the next state and persist it as a plain side effect, not from
+    // inside the setState updater (updaters can run more than once — e.g.
+    // React StrictMode double-invoke in dev — which would fire duplicate
+    // api.reorder calls).
+    let next = null;
     setBoard((prev) => {
       const items = prev[to];
       const oldIdx = items.findIndex((t) => t.id === a.id);
       const overIdx = items.findIndex((t) => t.id === over.id);
-      const next = oldIdx !== -1 && overIdx !== -1 && oldIdx !== overIdx
+      next = oldIdx !== -1 && overIdx !== -1 && oldIdx !== overIdx
         ? { ...prev, [to]: arrayMove(items, oldIdx, overIdx) }
         : prev;
-      persistOrder(next);
       return next;
     });
+    if (next) persistOrder(next);
   }
 
   function persistOrder(next) {
@@ -242,6 +254,30 @@ export default function Board({ user, onLogout }) {
         api.reorder({ board_id: activeId, column_name: col, ordered_ids: next[col].map((t) => t.id) })
       )
     ).then(() => setPending(offline.queueSize())).catch((e) => { setError(e.message); loadTasks(); });
+  }
+
+  // ── "Move to" quick action — the primary way to change a card's column on
+  // mobile, where dragging across an off-screen column isn't reliable (no
+  // auto-scroll, nested scroll containers). Works the same on desktop too.
+  async function moveTaskTo(taskId, targetColumn) {
+    const from = findContainer(taskId);
+    if (!from || from === targetColumn) return;
+    setBoard((prev) => {
+      const item = prev[from]?.find((t) => t.id === taskId);
+      if (!item) return prev;
+      return {
+        ...prev,
+        [from]: prev[from].filter((t) => t.id !== taskId),
+        [targetColumn]: [...(prev[targetColumn] || []), { ...item, column_name: targetColumn }]
+      };
+    });
+    try {
+      await api.moveTask(taskId, { column_name: targetColumn });
+      setPending(offline.queueSize());
+    } catch (err) {
+      setError(err.message);
+      loadTasks();
+    }
   }
 
   return (
@@ -316,13 +352,16 @@ export default function Board({ user, onLogout }) {
       <div className="board-scroll" style={view === "board" ? bgStyle(bg) : undefined}>
         {view === "board" ? (
           <DndContext sensors={sensors} collisionDetection={closestCorners} onDragOver={onDragOver} onDragEnd={onDragEnd}>
+            <MobileColTabs current={mobileCol} onPick={setMobileCol} />
             <div className="board-grid">
               {COLUMNS.map((col) => (
                 <Column key={col.key} col={col} tasks={board[col.key] || []}
+                  mobileActive={col.key === mobileCol}
                   currentUserId={user.id} matches={matches}
                   onAdd={() => setEditing({ column_name: col.key })}
                   onOpen={setEditing}
-                  onArchive={(id) => act(api.archiveTask(id))} />
+                  onArchive={(id) => act(api.archiveTask(id))}
+                  onMoveTo={moveTaskTo} />
               ))}
             </div>
           </DndContext>
@@ -362,12 +401,12 @@ export default function Board({ user, onLogout }) {
   );
 }
 
-function Column({ col, tasks, currentUserId, matches, onAdd, onOpen, onArchive }) {
+function Column({ col, tasks, mobileActive, currentUserId, matches, onAdd, onOpen, onArchive, onMoveTo }) {
   const { t } = useT();
   const { setNodeRef, isOver } = useDroppable({ id: col.key });
   const visibleCount = tasks.filter(matches).length;
   return (
-    <section className="board-col">
+    <section className={`board-col${mobileActive ? " mobile-active" : ""}`}>
       <div className="col-head" style={{ "--accent": col.accent }}>
         <span className="col-title">{t(`col.${col.key}`)}</span>
         <span className="col-count">{visibleCount}</span>
@@ -377,12 +416,29 @@ function Column({ col, tasks, currentUserId, matches, onAdd, onOpen, onArchive }
           {tasks.map((task) => (
             <SortableCard key={task.id} task={task} hidden={!matches(task)}
               isOwner={task.owner_id === currentUserId}
-              onClick={() => onOpen(task)} onArchive={() => onArchive(task.id)} />
+              onClick={() => onOpen(task)} onArchive={() => onArchive(task.id)}
+              onMoveTo={onMoveTo} />
           ))}
           <button className="add-inline" onClick={onAdd}>{t("board.addInline")}</button>
         </div>
       </SortableContext>
     </section>
+  );
+}
+
+function MobileColTabs({ current, onPick }) {
+  const { t } = useT();
+  return (
+    <div className="mobile-col-tabs">
+      {COLUMNS.map((col) => (
+        <button key={col.key} type="button"
+          className={`mobile-col-tab${col.key === current ? " active" : ""}`}
+          style={{ "--tc": col.accent }} onClick={() => onPick(col.key)}>
+          <span className="dot" />
+          {t(`col.${col.key}`)}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -396,18 +452,36 @@ function avatarColor(name) {
   return palette[h];
 }
 
-function SortableCard({ task, hidden, isOwner, onClick, onArchive }) {
+function SortableCard({ task, hidden, isOwner, onClick, onArchive, onMoveTo }) {
   const { t } = useT();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
   const prio = (task.priority || "").toLowerCase();
+  const [showMove, setShowMove] = useState(false);
+  const otherCols = COLUMNS.filter((c) => c.key !== task.column_name);
   return (
     <article ref={setNodeRef} style={style} {...attributes} {...listeners}
-      className={`card card-${task.column_name}${hidden ? " card-hidden" : ""}`} onClick={onClick}
+      className={`card card-${task.column_name}${hidden ? " card-hidden" : ""}`}
+      onClick={() => { setShowMove(false); onClick(); }}
       onKeyDown={(e) => e.key === "Enter" && onClick()}>
       <button className="card-archive" title={t("common.archive")}
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => { e.stopPropagation(); onArchive(); }}>✓</button>
+      <button className="card-kebab" title={t("board.moveTo")}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => { e.stopPropagation(); setShowMove((s) => !s); }}>⋮</button>
+      {showMove && (
+        <div className="card-move-menu" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+          <div className="card-move-label">{t("board.moveTo")}</div>
+          {otherCols.map((c) => (
+            <button key={c.key} type="button"
+              onClick={() => { setShowMove(false); onMoveTo(task.id, c.key); }}>
+              <span className="sw" style={{ background: c.accent }} />
+              {t(`col.${c.key}`)}
+            </button>
+          ))}
+        </div>
+      )}
       <p className="card-text">{task.text}</p>
       <div className="card-meta">
         {task.priority && <span className={`prio prio-${prio}`}>{t(`prio.${task.priority}`)}</span>}
@@ -492,7 +566,7 @@ function CalendarView({ board, matches, onOpen }) {
   const today = new Date();
   const [cur, setCur] = useState({ y: today.getFullYear(), m: today.getMonth() });
 
-  const all = [...board.ToDo, ...board.Doing, ...board.Done].filter(matches);
+  const all = COLUMN_KEYS.flatMap((k) => board[k] || []).filter(matches);
   const byDate = {};
   const noDate = [];
   for (const tk of all) {
