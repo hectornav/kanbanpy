@@ -19,4 +19,15 @@ def get_current_user(creds: HTTPAuthorizationCredentials | None = Depends(_beare
     user = db.get_user_by_id(user_id)
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User no longer exists")
+    if not user.get("is_active", True):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This account has been deactivated.")
     return user
+
+
+def require_org_admin(current=Depends(get_current_user)) -> dict:
+    if not current.get("is_org_admin"):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Only the organization administrator can do that.",
+        )
+    return current

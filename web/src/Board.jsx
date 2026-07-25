@@ -13,6 +13,7 @@ import TaskModal from "./TaskModal.jsx";
 import BoardSettingsModal from "./BoardSettingsModal.jsx";
 import ActivityPanel from "./ActivityPanel.jsx";
 import AiPlanModal from "./AiPlanModal.jsx";
+import AdminPanel from "./AdminPanel.jsx";
 
 const COLUMNS = [
   { key: "Backlog", accent: "var(--backlog)" },
@@ -55,7 +56,7 @@ function bgStyle(value) {
   return undefined;
 }
 
-export default function Board({ user, onLogout }) {
+export default function Board({ user, onLogout, onUserUpdate }) {
   const { t } = useT();
   const [boards, setBoards] = useState([]);
   const [activeId, setActiveId] = useState(() => Number(localStorage.getItem("kanban.board")) || null);
@@ -68,6 +69,7 @@ export default function Board({ user, onLogout }) {
   const [settingsFor, setSettingsFor] = useState(null);
   const [showActivity, setShowActivity] = useState(false);
   const [showAi, setShowAi] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -288,7 +290,12 @@ export default function Board({ user, onLogout }) {
           <strong>Kanbanpy Pro</strong>
         </div>
         <div className="topbar-right">
-          <span className="who">@{user.username}</span>
+          <span className="who">@{user.username}{user.org_name ? ` · ${user.org_name}` : ""}</span>
+          {user.is_org_admin && (
+            <button className="ghost" onClick={() => setShowAdmin(true)} title={t("admin.title")}>
+              {t("nav.admin")}
+            </button>
+          )}
           <PushToggle onError={setError} />
           <button className="ghost" onClick={() => setShowActivity(true)} title={t("nav.activity")}>🕘</button>
           <LanguagePicker />
@@ -396,6 +403,14 @@ export default function Board({ user, onLogout }) {
           onClose={() => setShowAi(false)}
           onError={(m) => { setShowAi(false); setError(m); }}
           onDone={async (n) => { setShowAi(false); setNotice(t("ai.created", { n })); await loadTasks(); }} />
+      )}
+      {showAdmin && (
+        <AdminPanel
+          currentUserId={user.id}
+          onClose={() => setShowAdmin(false)}
+          onError={setError}
+          onOrgRenamed={(name) => onUserUpdate?.({ ...user, org_name: name })}
+        />
       )}
     </div>
   );

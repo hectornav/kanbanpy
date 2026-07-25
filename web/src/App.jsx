@@ -34,7 +34,7 @@ export default function App() {
   }
 
   return user ? (
-    <Board user={user} onLogout={handleLogout} />
+    <Board user={user} onLogout={handleLogout} onUserUpdate={setUser} />
   ) : (
     <AuthScreen onAuthenticated={setUser} />
   );

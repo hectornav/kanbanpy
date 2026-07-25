@@ -124,6 +124,7 @@ def init_db() -> None:
                 security_a     TEXT    DEFAULT '',
                 org_id         INTEGER REFERENCES organizations(id),
                 is_org_admin   BOOLEAN NOT NULL DEFAULT FALSE,
+                is_active      BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
             );
 
@@ -224,6 +225,7 @@ def init_db() -> None:
             -- these explicit ALTERs.
             ALTER TABLE users ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id);
             ALTER TABLE users ADD COLUMN IF NOT EXISTS is_org_admin BOOLEAN NOT NULL DEFAULT FALSE;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
             ALTER TABLE boards ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id);
             ALTER TABLE settings ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id);
 
@@ -386,7 +388,7 @@ def get_user_by_username(username: str) -> dict | None:
 def get_user_by_id(user_id: int) -> dict | None:
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT u.id, u.username, u.org_id, u.is_org_admin, o.name AS org_name "
+            "SELECT u.id, u.username, u.org_id, u.is_org_admin, u.is_active, o.name AS org_name "
             "FROM users u LEFT JOIN organizations o ON o.id = u.org_id WHERE u.id = %s",
             (user_id,),
         ).fetchone()
@@ -394,10 +396,22 @@ def get_user_by_id(user_id: int) -> dict | None:
 
 
 def authenticate(username: str, password: str) -> dict | None:
+    """Return the user on success, or None. Inactive accounts authenticate as
+    None so callers that only care about success/failure stay simple; use
+    login_user() when you need a distinct 'deactivated' error."""
+    user, _reason = login_user(username, password)
+    return user
+
+
+def login_user(username: str, password: str) -> tuple[dict | None, str]:
+    """Validate credentials. Returns (user, "") on success, or (None, reason)
+    where reason is "invalid" or "inactive"."""
     user = get_user_by_username(username)
     if not user or not verify_secret(password, user["password_hash"]):
-        return None
-    return get_user_by_id(user["id"])
+        return None, "invalid"
+    if not user.get("is_active", True):
+        return None, "inactive"
+    return get_user_by_id(user["id"]), ""
 
 
 def get_security_question(username: str) -> str | None:
@@ -422,10 +436,72 @@ def reset_password(username: str, answer: str, new_password: str) -> tuple[bool,
 
 
 def list_users(org_id: int) -> list[dict]:
+    """Active org members — used for assignee / share pickers."""
     with get_connection() as conn:
         return [dict(r) for r in conn.execute(
-            "SELECT id, username FROM users WHERE org_id = %s ORDER BY username", (org_id,)
+            "SELECT id, username FROM users WHERE org_id = %s AND is_active = TRUE ORDER BY username",
+            (org_id,),
         ).fetchall()]
+
+
+# ── Organization admin ─────────────────────────────────────────────────────────
+
+def get_organization(org_id: int) -> dict | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, name, invite_code, created_at FROM organizations WHERE id = %s",
+            (org_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def rename_organization(org_id: int, name: str) -> bool:
+    name = name.strip()
+    if not name:
+        return False
+    with get_connection() as conn:
+        conn.execute("UPDATE organizations SET name = %s WHERE id = %s", (name, org_id))
+    return True
+
+
+def rotate_invite_code(org_id: int) -> str | None:
+    with get_connection() as conn:
+        code = _generate_invite_code(conn)
+        cur = conn.execute(
+            "UPDATE organizations SET invite_code = %s WHERE id = %s RETURNING invite_code",
+            (code, org_id),
+        )
+        row = cur.fetchone()
+    return row["invite_code"] if row else None
+
+
+def list_org_members(org_id: int) -> list[dict]:
+    """All members (active and inactive) for the org admin panel."""
+    with get_connection() as conn:
+        return [dict(r) for r in conn.execute(
+            """
+            SELECT id, username, is_org_admin, is_active, created_at
+            FROM users WHERE org_id = %s
+            ORDER BY is_org_admin DESC, username
+            """,
+            (org_id,),
+        ).fetchall()]
+
+
+def set_member_active(org_id: int, member_id: int, active: bool, actor_id: int) -> tuple[bool, str]:
+    """Activate/deactivate a member of the same org. Admins can't deactivate themselves."""
+    if member_id == actor_id and not active:
+        return False, "You cannot deactivate your own account."
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, org_id FROM users WHERE id = %s", (member_id,)
+        ).fetchone()
+        if not row or row["org_id"] != org_id:
+            return False, "User not found in this organization."
+        conn.execute(
+            "UPDATE users SET is_active = %s WHERE id = %s", (active, member_id)
+        )
+    return True, "Updated."
 
 
 # ── Boards ─────────────────────────────────────────────────────────────────────
@@ -914,10 +990,18 @@ def board_notify_user_ids(board_id: int, exclude: int | None = None) -> list[int
             return []
         if board["is_shared"]:
             ids = {r["id"] for r in conn.execute(
-                "SELECT id FROM users WHERE org_id = %s", (board["org_id"],)).fetchall()}
+                "SELECT id FROM users WHERE org_id = %s AND is_active = TRUE",
+                (board["org_id"],),
+            ).fetchall()}
         else:
             ids = {board["owner_id"]}
             ids.update(r["user_id"] for r in conn.execute(
                 "SELECT user_id FROM board_members WHERE board_id = %s", (board_id,)).fetchall())
+            # Drop deactivated members so push/reminders don't target them.
+            active = {r["id"] for r in conn.execute(
+                "SELECT id FROM users WHERE id = ANY(%s) AND is_active = TRUE",
+                (list(ids),),
+            ).fetchall()}
+            ids = active
     ids.discard(exclude)
     return list(ids)

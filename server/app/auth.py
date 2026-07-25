@@ -31,7 +31,12 @@ def login(req: LoginRequest):
             status.HTTP_429_TOO_MANY_REQUESTS,
             f"Demasiados intentos. Prueba de nuevo en {locked // 60 + 1} min.",
         )
-    user = db.authenticate(req.username, req.password)
+    user, reason = db.login_user(req.username, req.password)
+    if reason == "inactive":
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "This account has been deactivated. Ask your organization admin.",
+        )
     if not user:
         ratelimit.record_failure(key)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Wrong username or password.")

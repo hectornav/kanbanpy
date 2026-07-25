@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 import asyncio
 from datetime import datetime
 
-from . import ai_routes, auth, boards, db, push, push_routes, reminders, tasks
+from . import ai_routes, auth, boards, db, org, push, push_routes, reminders, tasks
 from .config import settings
 from .ws import manager
 
@@ -29,6 +29,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(org.router)
 app.include_router(boards.router)
 app.include_router(tasks.router)
 app.include_router(push_routes.router)

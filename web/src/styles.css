@@ -467,6 +467,35 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 /* Header sits outside the padded <form> here, so give it its own inset. */
 .modal > .modal-head { padding: 20px 22px 0; margin-bottom: 0; }
 .modal-lg form { padding-top: 14px; }
+
+.admin-body { padding: 14px 22px 22px; display: flex; flex-direction: column; gap: 18px; }
+.admin-section label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 500; }
+.admin-section .hint { margin-top: 0; margin-bottom: 10px; }
+.admin-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.admin-row input { flex: 1; min-width: 160px; }
+.invite-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 18px; letter-spacing: 0.12em; font-weight: 600;
+  padding: 8px 12px; border-radius: 8px; background: var(--ground);
+  border: 1px solid var(--border); color: var(--ink);
+}
+.admin-notice { margin: 0; }
+.admin-members { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.admin-members li {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--ground);
+}
+.admin-members li.inactive { opacity: 0.65; }
+.admin-member-info { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.admin-member-info strong { font-size: 14px; }
+.badge {
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 2px 7px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+.badge.muted { background: color-mix(in srgb, var(--muted) 22%, transparent); color: var(--muted); }
+.danger-text { color: var(--danger, #e5484d) !important; }
+
 .detail-extra { border-top: 1px solid var(--border); padding: 6px 22px 22px; }
 .detail-block { margin-top: 18px; }
 .detail-block h4 { margin: 0 0 10px; font-size: 14px; display: flex; align-items: center; gap: 8px; }

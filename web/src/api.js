@@ -135,7 +135,14 @@ export const api = {
   // Push notifications
   pushPublicKey: () => request("/push/public-key"),
   pushSubscribe: (subscription) => request("/push/subscribe", { method: "POST", body: subscription }),
-  pushUnsubscribe: (endpoint) => request("/push/unsubscribe", { method: "POST", body: { endpoint } })
+  pushUnsubscribe: (endpoint) => request("/push/unsubscribe", { method: "POST", body: { endpoint } }),
+
+  // Organization admin
+  org: () => request("/org"),
+  renameOrg: (payload) => request("/org", { method: "PUT", body: payload }),
+  rotateInvite: () => request("/org/invite/rotate", { method: "POST" }),
+  orgMembers: () => request("/org/members"),
+  setMemberActive: (id, payload) => request(`/org/members/${id}`, { method: "PATCH", body: payload })
 };
 
 // Live sync: reconnecting WebSocket that calls onChange when the board mutates.

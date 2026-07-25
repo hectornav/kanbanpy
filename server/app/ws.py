@@ -22,7 +22,7 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket, token: str) -> bool:
         user_id = decode_access_token(token)
         user = db.get_user_by_id(user_id) if user_id is not None else None
-        if user is None:
+        if user is None or not user.get("is_active", True):
             await websocket.close(code=4401)
             return False
         await websocket.accept()

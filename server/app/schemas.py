@@ -1,6 +1,7 @@
 """
 schemas.py - Pydantic request/response models for the API.
 """
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -41,6 +42,29 @@ class UserOut(BaseModel):
     org_id: int
     org_name: str
     is_org_admin: bool
+
+
+class OrgOut(BaseModel):
+    id: int
+    name: str
+    invite_code: str
+    created_at: datetime | None = None
+
+
+class OrgRenameRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
+class OrgMemberOut(BaseModel):
+    id: int
+    username: str
+    is_org_admin: bool
+    is_active: bool
+    created_at: datetime | None = None
+
+
+class SetMemberActiveRequest(BaseModel):
+    is_active: bool
 
 
 class TokenResponse(BaseModel):
