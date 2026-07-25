@@ -14,11 +14,12 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def register(req: RegisterRequest):
-    ok, msg = db.create_user(req.username, req.password, req.security_q, req.security_a)
+    ok, msg = db.create_user(req.username, req.password, req.security_q, req.security_a,
+                             req.org_mode, req.org_name, req.invite_code)
     if not ok:
         raise HTTPException(status.HTTP_409_CONFLICT, msg)
     user = db.get_user_by_username(req.username)
-    return UserOut(id=user["id"], username=user["username"])
+    return UserOut(**db.get_user_by_id(user["id"]))
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -41,7 +42,7 @@ def login(req: LoginRequest):
 
 @router.get("/me", response_model=UserOut)
 def me(current=Depends(get_current_user)):
-    return UserOut(id=current["id"], username=current["username"])
+    return UserOut(**current)
 
 
 @router.get("/security-question")

@@ -9,6 +9,7 @@ export default function AuthScreen({ onAuthenticated }) {
   const [ok, setOk] = useState("");
   const [busy, setBusy] = useState(false);
   const [securityQ, setSecurityQ] = useState("");
+  const [orgMode, setOrgMode] = useState("create"); // create | join
 
   const FEATURES = [t("feat.1"), t("feat.2"), t("feat.3"), t("feat.4")];
 
@@ -35,7 +36,10 @@ export default function AuthScreen({ onAuthenticated }) {
     try {
       await api.register({
         username: f.get("username").trim(), password: f.get("password"),
-        security_q: f.get("security_q").trim(), security_a: f.get("security_a").trim()
+        security_q: f.get("security_q").trim(), security_a: f.get("security_a").trim(),
+        org_mode: orgMode,
+        org_name: orgMode === "create" ? f.get("org_name").trim() : "",
+        invite_code: orgMode === "join" ? f.get("invite_code").trim() : ""
       });
       const res = await api.login({ username: f.get("username").trim(), password: f.get("password") });
       auth.token = res.access_token;
@@ -117,6 +121,27 @@ export default function AuthScreen({ onAuthenticated }) {
               <input name="security_q" placeholder={t("auth.securityQPh")} required />
               <label>{t("auth.securityA")}</label>
               <input name="security_a" placeholder={t("auth.securityAPh")} required />
+
+              <div className="org-mode-switch">
+                <button type="button" className={`org-mode-btn${orgMode === "create" ? " active" : ""}`}
+                        onClick={() => setOrgMode("create")}>{t("org.create")}</button>
+                <button type="button" className={`org-mode-btn${orgMode === "join" ? " active" : ""}`}
+                        onClick={() => setOrgMode("join")}>{t("org.join")}</button>
+              </div>
+              {orgMode === "create" ? (
+                <>
+                  <label>{t("org.name")}</label>
+                  <input name="org_name" placeholder={t("org.namePh")} required />
+                  <p className="hint">{t("org.createHint")}</p>
+                </>
+              ) : (
+                <>
+                  <label>{t("org.inviteCode")}</label>
+                  <input name="invite_code" placeholder={t("org.inviteCodePh")} required />
+                  <p className="hint">{t("org.joinHint")}</p>
+                </>
+              )}
+
               {error && <p className="err">❌ {error}</p>}
               <button className="primary" disabled={busy}>{busy ? "…" : t("auth.createAccount")}</button>
               <div className="switch">

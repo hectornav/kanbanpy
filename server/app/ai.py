@@ -23,17 +23,17 @@ except ImportError:  # pragma: no cover
     _HAS_ANTHROPIC = False
 
 
-def config() -> dict:
+def config(org_id: int) -> dict:
     """Resolve AI config: DB settings (editable in-app) override env defaults."""
     return {
-        "provider": db.get_setting("ai_provider", settings.ai_provider) or settings.ai_provider,
-        "anthropic_api_key": db.get_setting("anthropic_api_key", settings.anthropic_api_key),
-        "anthropic_model": db.get_setting("anthropic_model", settings.anthropic_model) or settings.anthropic_model,
-        "openai_base_url": db.get_setting("openai_base_url", settings.openai_base_url) or settings.openai_base_url,
-        "openai_api_key": db.get_setting("openai_api_key", settings.openai_api_key),
-        "openai_model": db.get_setting("openai_model", settings.openai_model) or settings.openai_model,
-        "ollama_url": db.get_setting("ollama_url", settings.ollama_url) or settings.ollama_url,
-        "ollama_model": db.get_setting("ollama_model", settings.ollama_model) or settings.ollama_model,
+        "provider": db.get_setting(org_id, "ai_provider", settings.ai_provider) or settings.ai_provider,
+        "anthropic_api_key": db.get_setting(org_id, "anthropic_api_key", settings.anthropic_api_key),
+        "anthropic_model": db.get_setting(org_id, "anthropic_model", settings.anthropic_model) or settings.anthropic_model,
+        "openai_base_url": db.get_setting(org_id, "openai_base_url", settings.openai_base_url) or settings.openai_base_url,
+        "openai_api_key": db.get_setting(org_id, "openai_api_key", settings.openai_api_key),
+        "openai_model": db.get_setting(org_id, "openai_model", settings.openai_model) or settings.openai_model,
+        "ollama_url": db.get_setting(org_id, "ollama_url", settings.ollama_url) or settings.ollama_url,
+        "ollama_model": db.get_setting(org_id, "ollama_model", settings.ollama_model) or settings.ollama_model,
     }
 
 _SYSTEM = (
@@ -82,16 +82,16 @@ _SYSTEM_JSON = _SYSTEM + (
 )
 
 
-def anthropic_key_set() -> bool:
-    return bool(config()["anthropic_api_key"] or os.getenv("ANTHROPIC_API_KEY"))
+def anthropic_key_set(org_id: int) -> bool:
+    return bool(config(org_id)["anthropic_api_key"] or os.getenv("ANTHROPIC_API_KEY"))
 
 
-def openai_key_set() -> bool:
-    return bool(config()["openai_api_key"])
+def openai_key_set(org_id: int) -> bool:
+    return bool(config(org_id)["openai_api_key"])
 
 
-def configured() -> bool:
-    c = config()
+def configured(org_id: int) -> bool:
+    c = config(org_id)
     if c["provider"] == "ollama":
         return True  # reachability is checked when a plan is generated
     if c["provider"] == "openai":
@@ -99,10 +99,10 @@ def configured() -> bool:
     return bool(_HAS_ANTHROPIC and (c["anthropic_api_key"] or os.getenv("ANTHROPIC_API_KEY")))
 
 
-def generate_plan(idea: str) -> list[dict]:
+def generate_plan(idea: str, org_id: int) -> list[dict]:
     """Return a list of task dicts for the given project idea."""
-    c = config()
-    if not configured():
+    c = config(org_id)
+    if not configured(org_id):
         raise RuntimeError("AI planner not configured")
     if c["provider"] == "ollama":
         return _generate_ollama(idea, c)

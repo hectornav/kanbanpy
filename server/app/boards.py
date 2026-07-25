@@ -19,14 +19,14 @@ async def _notify(user_id: int) -> None:
 def list_boards(current=Depends(get_current_user)):
     boards = db.list_boards(current["id"])
     if not boards:
-        db.ensure_default_board(current["id"])
+        db.ensure_default_board(current["id"], current["org_id"])
         boards = db.list_boards(current["id"])
     return boards
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_board(board: BoardCreate, current=Depends(get_current_user)):
-    board_id = db.create_board(current["id"], board.name, board.color)
+    board_id = db.create_board(current["id"], current["org_id"], board.name, board.color)
     await _notify(current["id"])
     return {"id": board_id}
 
