@@ -421,23 +421,23 @@ def reset_password(username: str, answer: str, new_password: str) -> tuple[bool,
     return True, "Password reset."
 
 
-def list_users() -> list[dict]:
+def list_users(org_id: int) -> list[dict]:
     with get_connection() as conn:
         return [dict(r) for r in conn.execute(
-            "SELECT id, username FROM users ORDER BY username"
+            "SELECT id, username FROM users WHERE org_id = %s ORDER BY username", (org_id,)
         ).fetchall()]
 
 
 # ── Boards ─────────────────────────────────────────────────────────────────────
 
-def _board_access(conn, board_id: int, user_id: int):
+def _board_access(conn, board_id: int, user_id: int, org_id: int):
     return conn.execute(
         """
         SELECT b.* FROM boards b
         LEFT JOIN board_members m ON m.board_id = b.id AND m.user_id = %s
-        WHERE b.id = %s AND (b.owner_id = %s OR b.is_shared = 1 OR m.user_id = %s)
+        WHERE b.id = %s AND b.org_id = %s AND (b.owner_id = %s OR b.is_shared = 1 OR m.user_id = %s)
         """,
-        (user_id, board_id, user_id, user_id),
+        (user_id, board_id, org_id, user_id, user_id),
     ).fetchone()
 
 
@@ -455,16 +455,16 @@ def ensure_default_board(user_id: int, org_id: int) -> int:
         return cur.fetchone()["id"]
 
 
-def list_boards(user_id: int) -> list[dict]:
+def list_boards(user_id: int, org_id: int) -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute(
             """
             SELECT DISTINCT b.*, (b.owner_id = %s) AS is_owner FROM boards b
             LEFT JOIN board_members m ON m.board_id = b.id
-            WHERE b.owner_id = %s OR b.is_shared = 1 OR m.user_id = %s
+            WHERE b.org_id = %s AND (b.owner_id = %s OR b.is_shared = 1 OR m.user_id = %s)
             ORDER BY b.position, b.id
             """,
-            (user_id, user_id, user_id),
+            (user_id, org_id, user_id, user_id),
         ).fetchall()
     boards = []
     for r in rows:
@@ -546,13 +546,15 @@ def set_setting(org_id: int, key: str, value: str) -> None:
 
 
 
-def can_access_board(user_id: int, board_id: int) -> bool:
+def can_access_board(user_id: int, org_id: int, board_id: int) -> bool:
     with get_connection() as conn:
-        return _board_access(conn, board_id, user_id) is not None
+        return _board_access(conn, board_id, user_id, org_id) is not None
 
 
-def get_board_members(board_id: int) -> list[int]:
+def get_board_members(user_id: int, org_id: int, board_id: int) -> list[int] | None:
     with get_connection() as conn:
+        if not _board_access(conn, board_id, user_id, org_id):
+            return None
         rows = conn.execute("SELECT user_id FROM board_members WHERE board_id = %s", (board_id,)).fetchall()
     return [r["user_id"] for r in rows]
 
@@ -568,9 +570,9 @@ def _log(conn, board_id: int, task_id: int | None, user_id: int,
     )
 
 
-def get_activity(board_id: int, user_id: int, limit: int = 50) -> list[dict] | None:
+def get_activity(board_id: int, user_id: int, org_id: int, limit: int = 50) -> list[dict] | None:
     with get_connection() as conn:
-        if not _board_access(conn, board_id, user_id):
+        if not _board_access(conn, board_id, user_id, org_id):
             return None
         rows = conn.execute(
             """
@@ -585,10 +587,10 @@ def get_activity(board_id: int, user_id: int, limit: int = 50) -> list[dict] | N
 
 # ── Tasks ──────────────────────────────────────────────────────────────────────
 
-def get_board_tasks(user_id: int, board_id: int, archived: bool = False) -> dict | None:
+def get_board_tasks(user_id: int, org_id: int, board_id: int, archived: bool = False) -> dict | None:
     """Grouped active (or archived) tasks for a board the user can access."""
     with get_connection() as conn:
-        if not _board_access(conn, board_id, user_id):
+        if not _board_access(conn, board_id, user_id, org_id):
             return None
         rows = conn.execute(
             """
@@ -612,11 +614,11 @@ def get_board_tasks(user_id: int, board_id: int, archived: bool = False) -> dict
     return board
 
 
-def _accessible_task(conn, task_id: int, user_id: int):
+def _accessible_task(conn, task_id: int, user_id: int, org_id: int):
     row = conn.execute("SELECT * FROM tasks WHERE id = %s", (task_id,)).fetchone()
     if not row or row["board_id"] is None:
         return None
-    return row if _board_access(conn, row["board_id"], user_id) else None
+    return row if _board_access(conn, row["board_id"], user_id, org_id) else None
 
 
 def _next_sort_order(conn, board_id: int, column: str) -> int:
@@ -627,12 +629,12 @@ def _next_sort_order(conn, board_id: int, column: str) -> int:
     ).fetchone()["n"]
 
 
-def create_task(owner_id: int, board_id: int, data: dict) -> int | None:
+def create_task(owner_id: int, org_id: int, board_id: int, data: dict) -> int | None:
     column = data.get("column_name", "ToDo")
     tags = ",".join(data.get("tags", []) or [])
     now = _now()
     with get_connection() as conn:
-        if not _board_access(conn, board_id, owner_id):
+        if not _board_access(conn, board_id, owner_id, org_id):
             return None
         order = _next_sort_order(conn, board_id, column)
         cur = conn.execute(
@@ -649,11 +651,11 @@ def create_task(owner_id: int, board_id: int, data: dict) -> int | None:
         return task_id
 
 
-def update_task(task_id: int, user_id: int, data: dict) -> bool:
+def update_task(task_id: int, user_id: int, org_id: int, data: dict) -> bool:
     """Any board member may edit a task's content."""
     tags = ",".join(data.get("tags", []) or [])
     with get_connection() as conn:
-        task = _accessible_task(conn, task_id, user_id)
+        task = _accessible_task(conn, task_id, user_id, org_id)
         if not task:
             return False
         conn.execute(
@@ -685,11 +687,11 @@ def _advance_date(date_str: str, rule: str) -> str | None:
     return None
 
 
-def move_task(task_id: int, user_id: int, new_column: str, new_order: int | None = None) -> bool:
+def move_task(task_id: int, user_id: int, org_id: int, new_column: str, new_order: int | None = None) -> bool:
     if new_column not in COLUMNS:
         return False
     with get_connection() as conn:
-        task = _accessible_task(conn, task_id, user_id)
+        task = _accessible_task(conn, task_id, user_id, org_id)
         if not task:
             return False
         if new_order is None:
@@ -721,11 +723,11 @@ def move_task(task_id: int, user_id: int, new_column: str, new_order: int | None
     return True
 
 
-def reorder_column(user_id: int, board_id: int, column: str, ordered_ids: list[int]) -> bool:
+def reorder_column(user_id: int, org_id: int, board_id: int, column: str, ordered_ids: list[int]) -> bool:
     if column not in COLUMNS:
         return False
     with get_connection() as conn:
-        if not _board_access(conn, board_id, user_id):
+        if not _board_access(conn, board_id, user_id, org_id):
             return False
         for position, tid in enumerate(ordered_ids):
             conn.execute(
@@ -736,9 +738,9 @@ def reorder_column(user_id: int, board_id: int, column: str, ordered_ids: list[i
     return True
 
 
-def set_archived(task_id: int, user_id: int, archived: bool) -> bool:
+def set_archived(task_id: int, user_id: int, org_id: int, archived: bool) -> bool:
     with get_connection() as conn:
-        task = _accessible_task(conn, task_id, user_id)
+        task = _accessible_task(conn, task_id, user_id, org_id)
         if not task:
             return False
         conn.execute(
@@ -750,13 +752,13 @@ def set_archived(task_id: int, user_id: int, archived: bool) -> bool:
     return True
 
 
-def delete_task(task_id: int, user_id: int) -> bool:
+def delete_task(task_id: int, user_id: int, org_id: int) -> bool:
     """The task owner or the board owner may delete."""
     with get_connection() as conn:
         task = conn.execute("SELECT * FROM tasks WHERE id = %s", (task_id,)).fetchone()
         if not task or task["board_id"] is None:
             return False
-        board = _board_access(conn, task["board_id"], user_id)
+        board = _board_access(conn, task["board_id"], user_id, org_id)
         if not board:
             return False
         if task["owner_id"] != user_id and board["owner_id"] != user_id:
@@ -797,9 +799,9 @@ def get_subscriptions_for_users(user_ids: list[int]) -> list[dict]:
 
 # ── Task detail: subtasks, comments, per-task activity ──────────────────────────
 
-def get_task_detail(task_id: int, user_id: int) -> dict | None:
+def get_task_detail(task_id: int, user_id: int, org_id: int) -> dict | None:
     with get_connection() as conn:
-        task = _accessible_task(conn, task_id, user_id)
+        task = _accessible_task(conn, task_id, user_id, org_id)
         if not task:
             return None
         detail = _task_to_dict(task)
@@ -817,13 +819,9 @@ def get_task_detail(task_id: int, user_id: int) -> dict | None:
     return detail
 
 
-def _access_via_task(conn, task_id, user_id):
-    return _accessible_task(conn, task_id, user_id)
-
-
-def add_subtask(task_id: int, user_id: int, text: str) -> int | None:
+def add_subtask(task_id: int, user_id: int, org_id: int, text: str) -> int | None:
     with get_connection() as conn:
-        if not _accessible_task(conn, task_id, user_id):
+        if not _accessible_task(conn, task_id, user_id, org_id):
             return None
         pos = conn.execute(
             "SELECT COALESCE(MAX(position), -1) + 1 AS n FROM subtasks WHERE task_id = %s", (task_id,)
@@ -835,10 +833,10 @@ def add_subtask(task_id: int, user_id: int, text: str) -> int | None:
         return cur.fetchone()["id"]
 
 
-def update_subtask(subtask_id: int, user_id: int, text: str | None, done: bool | None) -> bool:
+def update_subtask(subtask_id: int, user_id: int, org_id: int, text: str | None, done: bool | None) -> bool:
     with get_connection() as conn:
         row = conn.execute("SELECT task_id FROM subtasks WHERE id = %s", (subtask_id,)).fetchone()
-        if not row or not _accessible_task(conn, row["task_id"], user_id):
+        if not row or not _accessible_task(conn, row["task_id"], user_id, org_id):
             return False
         if text is not None:
             conn.execute("UPDATE subtasks SET text = %s WHERE id = %s", (text.strip(), subtask_id))
@@ -847,21 +845,21 @@ def update_subtask(subtask_id: int, user_id: int, text: str | None, done: bool |
     return True
 
 
-def delete_subtask(subtask_id: int, user_id: int) -> bool:
+def delete_subtask(subtask_id: int, user_id: int, org_id: int) -> bool:
     with get_connection() as conn:
         row = conn.execute("SELECT task_id FROM subtasks WHERE id = %s", (subtask_id,)).fetchone()
-        if not row or not _accessible_task(conn, row["task_id"], user_id):
+        if not row or not _accessible_task(conn, row["task_id"], user_id, org_id):
             return False
         conn.execute("DELETE FROM subtasks WHERE id = %s", (subtask_id,))
     return True
 
 
-def add_comment(task_id: int, user_id: int, body: str) -> int | None:
+def add_comment(task_id: int, user_id: int, org_id: int, body: str) -> int | None:
     body = body.strip()
     if not body:
         return None
     with get_connection() as conn:
-        if not _accessible_task(conn, task_id, user_id):
+        if not _accessible_task(conn, task_id, user_id, org_id):
             return None
         cur = conn.execute(
             "INSERT INTO comments (task_id, user_id, body, created_at) VALUES (%s,%s,%s,%s) RETURNING id",
@@ -870,14 +868,14 @@ def add_comment(task_id: int, user_id: int, body: str) -> int | None:
         return cur.fetchone()["id"]
 
 
-def delete_comment(comment_id: int, user_id: int) -> bool:
+def delete_comment(comment_id: int, user_id: int, org_id: int) -> bool:
     with get_connection() as conn:
         row = conn.execute(
             "SELECT c.user_id, t.board_id FROM comments c JOIN tasks t ON t.id = c.task_id "
             "WHERE c.id = %s", (comment_id,)).fetchone()
         if not row:
             return False
-        board = _board_access(conn, row["board_id"], user_id) if row["board_id"] else None
+        board = _board_access(conn, row["board_id"], user_id, org_id) if row["board_id"] else None
         if not board:
             return False
         if row["user_id"] != user_id and board["owner_id"] != user_id:
@@ -906,13 +904,17 @@ def mark_reminded(task_id: int, date_str: str) -> None:
 
 
 def board_notify_user_ids(board_id: int, exclude: int | None = None) -> list[int]:
-    """Users who should be notified about a board: owner + members (+ everyone if shared)."""
+    """Users who should be notified about a board: owner + members (+ the whole
+    org if shared — "shared" means shared within the org, never instance-wide)."""
     with get_connection() as conn:
-        board = conn.execute("SELECT owner_id, is_shared FROM boards WHERE id = %s", (board_id,)).fetchone()
+        board = conn.execute(
+            "SELECT owner_id, org_id, is_shared FROM boards WHERE id = %s", (board_id,)
+        ).fetchone()
         if not board:
             return []
         if board["is_shared"]:
-            ids = {r["id"] for r in conn.execute("SELECT id FROM users").fetchall()}
+            ids = {r["id"] for r in conn.execute(
+                "SELECT id FROM users WHERE org_id = %s", (board["org_id"],)).fetchall()}
         else:
             ids = {board["owner_id"]}
             ids.update(r["user_id"] for r in conn.execute(
