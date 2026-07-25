@@ -17,6 +17,9 @@ services:
       #   python -c "import secrets; print(secrets.token_hex(32))"
       KANBAN_SECRET_KEY: ${KANBAN_SECRET_KEY:?Set KANBAN_SECRET_KEY in .env}
       KANBAN_ENV: production
+      # Postgres on the shared postgres-shared container (same pattern as
+      # PlayMusic) -- see /srv/docker/postgres-shared/docker-compose.yml.
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
       # Lock CORS to your own origins once you know them; "*" is fine on a
       # private Tailscale network.
       KANBAN_CORS_ORIGINS: ${KANBAN_CORS_ORIGINS:-*}
@@ -37,8 +40,13 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      # Persists kanban.db across rebuilds. Your data lives here.
+      # Legacy SQLite data dir -- kept mounted through the Postgres cutover
+      # for rollback safety; safe to drop once Postgres has been confirmed
+      # stable for a while.
       - kanban-data:/data
+    networks:
+      - default          # keep talking to nothing else internally
+      - pg_net_kanbanpy  # reach the shared postgres-shared container
 
 # ── Accessing it from your phone anywhere, without opening ports ──────────────
 # Recommended: install Tailscale on the NAS host and on your phone. Then reach
@@ -58,6 +66,10 @@ services:
 #      - ts-state:/var/lib/tailscale
 #    cap_add: [net_admin, sys_module]
 #    restart: unless-stopped
+
+networks:
+  pg_net_kanbanpy:
+    external: true
 
 volumes:
   kanban-data:

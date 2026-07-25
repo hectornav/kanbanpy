@@ -1,7 +1,8 @@
 """
-db.py - SQLite persistence layer for the Kanbanpy Pro backend.
+db.py - Postgres persistence layer for the Kanbanpy Pro backend.
 
-WAL mode so the PWA and desktop client don't block each other. Data model:
+Connects to the shared postgres-shared container (see
+/srv/docker/postgres-shared/docker-compose.yml) via DATABASE_URL. Data model:
   * boards          — multiple boards per user, shareable (owner / global / members)
   * board_members   — explicit per-user board sharing
   * tasks           — belong to a board, can be archived
@@ -9,15 +10,80 @@ WAL mode so the PWA and desktop client don't block each other. Data model:
   * task_shares     — legacy per-task sharing (kept for migration, unused in queries)
 """
 import calendar
-import sqlite3
+import os
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
 
-from .config import settings
+import psycopg2
+import psycopg2.extras
+
 from .security import hash_secret, verify_secret
 
 COLUMNS = ("Backlog", "ToDo", "Doing", "Done")
 DEFAULT_BOARD_NAME = "Mi tablero"
+
+# No SQLite fallback: this app is Postgres-only. Fail loudly and immediately
+# if the orchestrating environment forgot to inject the connection string,
+# rather than letting a confusing psycopg2 error surface deep inside init_db().
+try:
+    DATABASE_URL = os.environ["DATABASE_URL"]
+except KeyError:
+    raise RuntimeError(
+        "DATABASE_URL environment variable is not set. Kanbanpy requires a "
+        "Postgres connection string, e.g. postgresql://user:pass@host:5432/dbname"
+    )
+
+
+class PGConnection:
+    """Thin sqlite3.Connection-like wrapper around a psycopg2 connection.
+
+    sqlite3.Connection has a built-in `.execute(sql, params)` shorthand that
+    implicitly creates a cursor, runs the query, and returns that cursor so
+    callers can chain `.fetchone()` / `.fetchall()` directly. psycopg2 has no
+    such shorthand — you must always go through `.cursor()` first. This
+    wrapper restores that convenience so the rest of this file (written
+    against sqlite3's API) needed only placeholder (`?` -> `%s`) and
+    id-generation (`lastrowid` -> `RETURNING id`) changes, not a full rewrite.
+    """
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql, params=None):
+        cur = self._conn.cursor()
+        cur.execute(sql, params if params else None)
+        return cur
+
+    def executescript(self, sql):
+        cur = self._conn.cursor()
+        cur.execute(sql)
+        return cur
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
+
+    def cursor(self, *args, **kwargs):
+        return self._conn.cursor(*args, **kwargs)
+
+
+def _new_db_connection():
+    """Open a new Postgres connection.
+
+    Session timezone pinned to UTC so `now()` matches the UTC ISO-8601
+    strings `_now()` used to produce with SQLite. `cursor_factory` defaults
+    to RealDictCursor so every `.cursor()` call returns dict-like rows
+    (`row['col']`), matching the `sqlite3.Row` access pattern used
+    throughout this file.
+    """
+    conn = psycopg2.connect(DATABASE_URL, options="-c timezone=UTC")
+    conn.cursor_factory = psycopg2.extras.RealDictCursor
+    return PGConnection(conn)
 
 
 def _now() -> str:
@@ -26,10 +92,7 @@ def _now() -> str:
 
 @contextmanager
 def get_connection():
-    conn = sqlite3.connect(settings.db_path)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
+    conn = _new_db_connection()
     try:
         yield conn
         conn.commit()
@@ -37,46 +100,39 @@ def get_connection():
         conn.close()
 
 
-def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
-    return {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
-
-
 def init_db() -> None:
     with get_connection() as conn:
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS users (
-                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                id             SERIAL PRIMARY KEY,
                 username       TEXT    NOT NULL UNIQUE,
                 password_hash  TEXT    NOT NULL,
                 security_q     TEXT    DEFAULT '',
                 security_a     TEXT    DEFAULT '',
-                created_at     TEXT    DEFAULT ''
+                created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
             );
 
             CREATE TABLE IF NOT EXISTS boards (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                owner_id    INTEGER NOT NULL,
+                id          SERIAL PRIMARY KEY,
+                owner_id    INTEGER NOT NULL REFERENCES users(id),
                 name        TEXT    NOT NULL,
                 color       TEXT    DEFAULT '#5b8cff',
                 is_shared   INTEGER DEFAULT 0,
                 position    INTEGER DEFAULT 0,
-                created_at  TEXT    DEFAULT '',
-                FOREIGN KEY(owner_id) REFERENCES users(id)
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
             );
 
             CREATE TABLE IF NOT EXISTS board_members (
-                board_id  INTEGER NOT NULL,
-                user_id   INTEGER NOT NULL,
-                PRIMARY KEY (board_id, user_id),
-                FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE CASCADE,
-                FOREIGN KEY(user_id) REFERENCES users(id)
+                board_id  INTEGER NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+                user_id   INTEGER NOT NULL REFERENCES users(id),
+                PRIMARY KEY (board_id, user_id)
             );
 
             CREATE TABLE IF NOT EXISTS tasks (
-                id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                owner_id     INTEGER NOT NULL,
-                board_id     INTEGER,
+                id           SERIAL PRIMARY KEY,
+                owner_id     INTEGER NOT NULL REFERENCES users(id),
+                board_id     INTEGER REFERENCES boards(id),
                 column_name  TEXT    NOT NULL DEFAULT 'ToDo',
                 text         TEXT    NOT NULL,
                 description  TEXT    DEFAULT '',
@@ -90,57 +146,48 @@ def init_db() -> None:
                 archived     INTEGER DEFAULT 0,
                 archived_at  TEXT    DEFAULT '',
                 reminded_on  TEXT    DEFAULT '',
-                created_at   TEXT    DEFAULT '',
-                updated_at   TEXT    DEFAULT '',
-                FOREIGN KEY(owner_id) REFERENCES users(id),
-                FOREIGN KEY(board_id) REFERENCES boards(id)
+                created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
             );
 
             CREATE TABLE IF NOT EXISTS task_shares (
-                task_id  INTEGER NOT NULL,
-                user_id  INTEGER NOT NULL,
-                PRIMARY KEY (task_id, user_id),
-                FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
-                FOREIGN KEY(user_id) REFERENCES users(id)
+                task_id  INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                user_id  INTEGER NOT NULL REFERENCES users(id),
+                PRIMARY KEY (task_id, user_id)
             );
 
             CREATE TABLE IF NOT EXISTS activity_log (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                board_id    INTEGER NOT NULL,
+                id          SERIAL PRIMARY KEY,
+                board_id    INTEGER NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
                 task_id     INTEGER,
                 user_id     INTEGER NOT NULL,
                 action      TEXT    NOT NULL,
                 detail      TEXT    DEFAULT '',
-                created_at  TEXT    DEFAULT '',
-                FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE CASCADE
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
             );
 
             CREATE TABLE IF NOT EXISTS subtasks (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                task_id     INTEGER NOT NULL,
+                id          SERIAL PRIMARY KEY,
+                task_id     INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
                 text        TEXT    NOT NULL,
                 done        INTEGER DEFAULT 0,
                 position    INTEGER DEFAULT 0,
-                created_at  TEXT    DEFAULT '',
-                FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
             );
 
             CREATE TABLE IF NOT EXISTS comments (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                task_id     INTEGER NOT NULL,
-                user_id     INTEGER NOT NULL,
+                id          SERIAL PRIMARY KEY,
+                task_id     INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                user_id     INTEGER NOT NULL REFERENCES users(id),
                 body        TEXT    NOT NULL,
-                created_at  TEXT    DEFAULT '',
-                FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
-                FOREIGN KEY(user_id) REFERENCES users(id)
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
             );
 
             CREATE TABLE IF NOT EXISTS push_subscriptions (
                 endpoint    TEXT PRIMARY KEY,
-                user_id     INTEGER NOT NULL,
+                user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 data        TEXT NOT NULL,
-                created_at  TEXT DEFAULT '',
-                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
             );
 
             CREATE TABLE IF NOT EXISTS settings (
@@ -153,26 +200,13 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
             CREATE INDEX IF NOT EXISTS idx_subtasks_task ON subtasks(task_id);
             CREATE INDEX IF NOT EXISTS idx_comments_task ON comments(task_id);
+            CREATE INDEX IF NOT EXISTS idx_tasks_board ON tasks(board_id);
             """
         )
-        # Migrate older schemas that predate boards/archiving. This must run
-        # before any index that references the new columns.
-        tcols = _columns(conn, "tasks")
-        for col, ddl in [
-            ("board_id", "ALTER TABLE tasks ADD COLUMN board_id INTEGER"),
-            ("archived", "ALTER TABLE tasks ADD COLUMN archived INTEGER DEFAULT 0"),
-            ("archived_at", "ALTER TABLE tasks ADD COLUMN archived_at TEXT DEFAULT ''"),
-            ("assignee_id", "ALTER TABLE tasks ADD COLUMN assignee_id INTEGER"),
-            ("reminded_on", "ALTER TABLE tasks ADD COLUMN reminded_on TEXT DEFAULT ''"),
-            ("recurrence", "ALTER TABLE tasks ADD COLUMN recurrence TEXT DEFAULT ''"),
-        ]:
-            if col not in tcols:
-                conn.execute(ddl)
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_board ON tasks(board_id)")
         _migrate_orphan_tasks(conn)
 
 
-def _migrate_orphan_tasks(conn: sqlite3.Connection) -> None:
+def _migrate_orphan_tasks(conn) -> None:
     """Give every user a default board and move board-less tasks onto it."""
     owners = conn.execute(
         "SELECT DISTINCT owner_id FROM tasks WHERE board_id IS NULL"
@@ -180,33 +214,33 @@ def _migrate_orphan_tasks(conn: sqlite3.Connection) -> None:
     for row in owners:
         owner_id = row["owner_id"]
         board = conn.execute(
-            "SELECT id FROM boards WHERE owner_id = ? ORDER BY position, id LIMIT 1",
+            "SELECT id FROM boards WHERE owner_id = %s ORDER BY position, id LIMIT 1",
             (owner_id,),
         ).fetchone()
         if board is None:
             cur = conn.execute(
-                "INSERT INTO boards (owner_id, name, position, created_at) VALUES (?,?,?,?)",
+                "INSERT INTO boards (owner_id, name, position, created_at) VALUES (%s,%s,%s,%s) RETURNING id",
                 (owner_id, DEFAULT_BOARD_NAME, 0, _now()),
             )
-            board_id = cur.lastrowid
+            board_id = cur.fetchone()["id"]
         else:
             board_id = board["id"]
         # If any legacy task was globally shared, keep the board shared too.
         shared = conn.execute(
-            "SELECT MAX(is_shared) AS s FROM tasks WHERE owner_id = ? AND board_id IS NULL",
+            "SELECT MAX(is_shared) AS s FROM tasks WHERE owner_id = %s AND board_id IS NULL",
             (owner_id,),
         ).fetchone()["s"]
         if shared:
-            conn.execute("UPDATE boards SET is_shared = 1 WHERE id = ?", (board_id,))
+            conn.execute("UPDATE boards SET is_shared = 1 WHERE id = %s", (board_id,))
         conn.execute(
-            "UPDATE tasks SET board_id = ? WHERE owner_id = ? AND board_id IS NULL",
+            "UPDATE tasks SET board_id = %s WHERE owner_id = %s AND board_id IS NULL",
             (board_id, owner_id),
         )
 
 
 # ── Row helpers ────────────────────────────────────────────────────────────────
 
-def _task_to_dict(row: sqlite3.Row) -> dict:
+def _task_to_dict(row) -> dict:
     d = dict(row)
     d["tags"] = [t for t in (d.get("tags") or "").split(",") if t]
     d["is_shared"] = bool(d.get("is_shared", 0))
@@ -225,28 +259,29 @@ def create_user(username: str, password: str, security_q: str = "", security_a: 
         with get_connection() as conn:
             cur = conn.execute(
                 "INSERT INTO users (username, password_hash, security_q, security_a, created_at) "
-                "VALUES (?,?,?,?,?)",
+                "VALUES (%s,%s,%s,%s,%s) RETURNING id",
                 (username, hash_secret(password), security_q.strip(), answer_hash, _now()),
             )
+            user_id = cur.fetchone()["id"]
             # Every new user starts with a default board.
             conn.execute(
-                "INSERT INTO boards (owner_id, name, position, created_at) VALUES (?,?,?,?)",
-                (cur.lastrowid, DEFAULT_BOARD_NAME, 0, _now()),
+                "INSERT INTO boards (owner_id, name, position, created_at) VALUES (%s,%s,%s,%s)",
+                (user_id, DEFAULT_BOARD_NAME, 0, _now()),
             )
         return True, "User registered."
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         return False, "That username already exists."
 
 
 def get_user_by_username(username: str) -> dict | None:
     with get_connection() as conn:
-        row = conn.execute("SELECT * FROM users WHERE username = ?", (username.strip(),)).fetchone()
+        row = conn.execute("SELECT * FROM users WHERE username = %s", (username.strip(),)).fetchone()
     return dict(row) if row else None
 
 
 def get_user_by_id(user_id: int) -> dict | None:
     with get_connection() as conn:
-        row = conn.execute("SELECT id, username FROM users WHERE id = ?", (user_id,)).fetchone()
+        row = conn.execute("SELECT id, username FROM users WHERE id = %s", (user_id,)).fetchone()
     return dict(row) if row else None
 
 
@@ -272,7 +307,7 @@ def reset_password(username: str, answer: str, new_password: str) -> tuple[bool,
         return False, "The answer is not correct."
     with get_connection() as conn:
         conn.execute(
-            "UPDATE users SET password_hash = ? WHERE username = ?",
+            "UPDATE users SET password_hash = %s WHERE username = %s",
             (hash_secret(new_password), username.strip()),
         )
     return True, "Password reset."
@@ -287,12 +322,12 @@ def list_users() -> list[dict]:
 
 # ── Boards ─────────────────────────────────────────────────────────────────────
 
-def _board_access(conn: sqlite3.Connection, board_id: int, user_id: int) -> sqlite3.Row | None:
+def _board_access(conn, board_id: int, user_id: int):
     return conn.execute(
         """
         SELECT b.* FROM boards b
-        LEFT JOIN board_members m ON m.board_id = b.id AND m.user_id = ?
-        WHERE b.id = ? AND (b.owner_id = ? OR b.is_shared = 1 OR m.user_id = ?)
+        LEFT JOIN board_members m ON m.board_id = b.id AND m.user_id = %s
+        WHERE b.id = %s AND (b.owner_id = %s OR b.is_shared = 1 OR m.user_id = %s)
         """,
         (user_id, board_id, user_id, user_id),
     ).fetchone()
@@ -301,24 +336,24 @@ def _board_access(conn: sqlite3.Connection, board_id: int, user_id: int) -> sqli
 def ensure_default_board(user_id: int) -> int:
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT id FROM boards WHERE owner_id = ? ORDER BY position, id LIMIT 1", (user_id,)
+            "SELECT id FROM boards WHERE owner_id = %s ORDER BY position, id LIMIT 1", (user_id,)
         ).fetchone()
         if row:
             return row["id"]
         cur = conn.execute(
-            "INSERT INTO boards (owner_id, name, position, created_at) VALUES (?,?,?,?)",
+            "INSERT INTO boards (owner_id, name, position, created_at) VALUES (%s,%s,%s,%s) RETURNING id",
             (user_id, DEFAULT_BOARD_NAME, 0, _now()),
         )
-        return cur.lastrowid
+        return cur.fetchone()["id"]
 
 
 def list_boards(user_id: int) -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute(
             """
-            SELECT DISTINCT b.*, (b.owner_id = ?) AS is_owner FROM boards b
+            SELECT DISTINCT b.*, (b.owner_id = %s) AS is_owner FROM boards b
             LEFT JOIN board_members m ON m.board_id = b.id
-            WHERE b.owner_id = ? OR b.is_shared = 1 OR m.user_id = ?
+            WHERE b.owner_id = %s OR b.is_shared = 1 OR m.user_id = %s
             ORDER BY b.position, b.id
             """,
             (user_id, user_id, user_id),
@@ -336,35 +371,35 @@ def create_board(owner_id: int, name: str, color: str = "#5b8cff") -> int:
     name = (name or "").strip() or "Nuevo tablero"
     with get_connection() as conn:
         pos = conn.execute(
-            "SELECT COALESCE(MAX(position), -1) + 1 AS n FROM boards WHERE owner_id = ?", (owner_id,)
+            "SELECT COALESCE(MAX(position), -1) + 1 AS n FROM boards WHERE owner_id = %s", (owner_id,)
         ).fetchone()["n"]
         cur = conn.execute(
-            "INSERT INTO boards (owner_id, name, color, position, created_at) VALUES (?,?,?,?,?)",
+            "INSERT INTO boards (owner_id, name, color, position, created_at) VALUES (%s,%s,%s,%s,%s) RETURNING id",
             (owner_id, name, color, pos, _now()),
         )
-        return cur.lastrowid
+        return cur.fetchone()["id"]
 
 
 def update_board(board_id: int, owner_id: int, name: str | None, color: str | None,
                  is_shared: bool | None, member_ids: list[int] | None) -> bool:
     with get_connection() as conn:
         owned = conn.execute(
-            "SELECT id FROM boards WHERE id = ? AND owner_id = ?", (board_id, owner_id)
+            "SELECT id FROM boards WHERE id = %s AND owner_id = %s", (board_id, owner_id)
         ).fetchone()
         if not owned:
             return False
         if name is not None:
-            conn.execute("UPDATE boards SET name = ? WHERE id = ?", (name.strip(), board_id))
+            conn.execute("UPDATE boards SET name = %s WHERE id = %s", (name.strip(), board_id))
         if color is not None:
-            conn.execute("UPDATE boards SET color = ? WHERE id = ?", (color, board_id))
+            conn.execute("UPDATE boards SET color = %s WHERE id = %s", (color, board_id))
         if is_shared is not None:
-            conn.execute("UPDATE boards SET is_shared = ? WHERE id = ?", (1 if is_shared else 0, board_id))
+            conn.execute("UPDATE boards SET is_shared = %s WHERE id = %s", (1 if is_shared else 0, board_id))
         if member_ids is not None:
-            conn.execute("DELETE FROM board_members WHERE board_id = ?", (board_id,))
+            conn.execute("DELETE FROM board_members WHERE board_id = %s", (board_id,))
             for uid in member_ids:
                 try:
-                    conn.execute("INSERT INTO board_members (board_id, user_id) VALUES (?,?)", (board_id, uid))
-                except sqlite3.IntegrityError:
+                    conn.execute("INSERT INTO board_members (board_id, user_id) VALUES (%s,%s)", (board_id, uid))
+                except psycopg2.IntegrityError:
                     pass
     return True
 
@@ -372,14 +407,14 @@ def update_board(board_id: int, owner_id: int, name: str | None, color: str | No
 def delete_board(board_id: int, owner_id: int) -> bool:
     with get_connection() as conn:
         owned = conn.execute(
-            "SELECT id FROM boards WHERE id = ? AND owner_id = ?", (board_id, owner_id)
+            "SELECT id FROM boards WHERE id = %s AND owner_id = %s", (board_id, owner_id)
         ).fetchone()
         if not owned:
             return False
-        conn.execute("DELETE FROM tasks WHERE board_id = ?", (board_id,))
-        conn.execute("DELETE FROM board_members WHERE board_id = ?", (board_id,))
-        conn.execute("DELETE FROM activity_log WHERE board_id = ?", (board_id,))
-        conn.execute("DELETE FROM boards WHERE id = ?", (board_id,))
+        conn.execute("DELETE FROM tasks WHERE board_id = %s", (board_id,))
+        conn.execute("DELETE FROM board_members WHERE board_id = %s", (board_id,))
+        conn.execute("DELETE FROM activity_log WHERE board_id = %s", (board_id,))
+        conn.execute("DELETE FROM boards WHERE id = %s", (board_id,))
     return True
 
 
@@ -387,14 +422,14 @@ def delete_board(board_id: int, owner_id: int) -> bool:
 
 def get_setting(key: str, default: str = "") -> str:
     with get_connection() as conn:
-        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        row = conn.execute("SELECT value FROM settings WHERE key = %s", (key,)).fetchone()
     return row["value"] if row else default
 
 
 def set_setting(key: str, value: str) -> None:
     with get_connection() as conn:
         conn.execute(
-            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "INSERT INTO settings (key, value) VALUES (%s, %s) "
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             (key, value),
         )
@@ -414,17 +449,17 @@ def can_access_board(user_id: int, board_id: int) -> bool:
 
 def get_board_members(board_id: int) -> list[int]:
     with get_connection() as conn:
-        rows = conn.execute("SELECT user_id FROM board_members WHERE board_id = ?", (board_id,)).fetchall()
+        rows = conn.execute("SELECT user_id FROM board_members WHERE board_id = %s", (board_id,)).fetchall()
     return [r["user_id"] for r in rows]
 
 
 # ── Activity log ─────────────────────────────────────────────────────────────
 
-def _log(conn: sqlite3.Connection, board_id: int, task_id: int | None, user_id: int,
+def _log(conn, board_id: int, task_id: int | None, user_id: int,
          action: str, detail: str = "") -> None:
     conn.execute(
         "INSERT INTO activity_log (board_id, task_id, user_id, action, detail, created_at) "
-        "VALUES (?,?,?,?,?,?)",
+        "VALUES (%s,%s,%s,%s,%s,%s)",
         (board_id, task_id, user_id, action, detail, _now()),
     )
 
@@ -437,7 +472,7 @@ def get_activity(board_id: int, user_id: int, limit: int = 50) -> list[dict] | N
             """
             SELECT a.action, a.detail, a.created_at, u.username
             FROM activity_log a JOIN users u ON u.id = a.user_id
-            WHERE a.board_id = ? ORDER BY a.id DESC LIMIT ?
+            WHERE a.board_id = %s ORDER BY a.id DESC LIMIT %s
             """,
             (board_id, limit),
         ).fetchall()
@@ -458,7 +493,7 @@ def get_board_tasks(user_id: int, board_id: int, archived: bool = False) -> dict
                    (SELECT COUNT(*) FROM subtasks s WHERE s.task_id = t.id AND s.done = 1) AS subtask_done,
                    (SELECT COUNT(*) FROM comments c WHERE c.task_id = t.id) AS comment_count
             FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id
-            WHERE t.board_id = ? AND t.archived = ?
+            WHERE t.board_id = %s AND t.archived = %s
             ORDER BY t.column_name, t.sort_order ASC, t.id ASC
             """,
             (board_id, 1 if archived else 0),
@@ -473,17 +508,17 @@ def get_board_tasks(user_id: int, board_id: int, archived: bool = False) -> dict
     return board
 
 
-def _accessible_task(conn: sqlite3.Connection, task_id: int, user_id: int) -> sqlite3.Row | None:
-    row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+def _accessible_task(conn, task_id: int, user_id: int):
+    row = conn.execute("SELECT * FROM tasks WHERE id = %s", (task_id,)).fetchone()
     if not row or row["board_id"] is None:
         return None
     return row if _board_access(conn, row["board_id"], user_id) else None
 
 
-def _next_sort_order(conn: sqlite3.Connection, board_id: int, column: str) -> int:
+def _next_sort_order(conn, board_id: int, column: str) -> int:
     return conn.execute(
         "SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM tasks "
-        "WHERE board_id = ? AND column_name = ? AND archived = 0",
+        "WHERE board_id = %s AND column_name = %s AND archived = 0",
         (board_id, column),
     ).fetchone()["n"]
 
@@ -500,12 +535,12 @@ def create_task(owner_id: int, board_id: int, data: dict) -> int | None:
             """INSERT INTO tasks
                (owner_id, board_id, column_name, text, description, priority, tags, due_date,
                 recurrence, assignee_id, sort_order, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
             (owner_id, board_id, column, data.get("text", ""), data.get("description", ""),
              data.get("priority", "Medium"), tags, data.get("due_date", ""),
              data.get("recurrence", ""), data.get("assignee_id"), order, now, now),
         )
-        task_id = cur.lastrowid
+        task_id = cur.fetchone()["id"]
         _log(conn, board_id, task_id, owner_id, "created", data.get("text", ""))
         return task_id
 
@@ -518,8 +553,8 @@ def update_task(task_id: int, user_id: int, data: dict) -> bool:
         if not task:
             return False
         conn.execute(
-            """UPDATE tasks SET text=?, description=?, priority=?, tags=?, due_date=?,
-               recurrence=?, column_name=?, assignee_id=?, updated_at=? WHERE id=?""",
+            """UPDATE tasks SET text=%s, description=%s, priority=%s, tags=%s, due_date=%s,
+               recurrence=%s, column_name=%s, assignee_id=%s, updated_at=%s WHERE id=%s""",
             (data.get("text", ""), data.get("description", ""), data.get("priority", "Medium"),
              tags, data.get("due_date", ""), data.get("recurrence", ""),
              data.get("column_name", task["column_name"]), data.get("assignee_id"), _now(), task_id),
@@ -556,7 +591,7 @@ def move_task(task_id: int, user_id: int, new_column: str, new_order: int | None
         if new_order is None:
             new_order = _next_sort_order(conn, task["board_id"], new_column)
         conn.execute(
-            "UPDATE tasks SET column_name = ?, sort_order = ?, updated_at = ? WHERE id = ?",
+            "UPDATE tasks SET column_name = %s, sort_order = %s, updated_at = %s WHERE id = %s",
             (new_column, new_order, _now(), task_id),
         )
         if new_column != task["column_name"]:
@@ -572,12 +607,13 @@ def move_task(task_id: int, user_id: int, new_column: str, new_order: int | None
                     """INSERT INTO tasks
                        (owner_id, board_id, column_name, text, description, priority, tags,
                         due_date, recurrence, assignee_id, sort_order, created_at, updated_at)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
                     (task["owner_id"], task["board_id"], "ToDo", task["text"], task["description"],
                      task["priority"], task["tags"], nxt, task["recurrence"], task["assignee_id"],
                      order, now, now),
                 )
-                _log(conn, task["board_id"], cur.lastrowid, user_id, "created", task["text"])
+                new_task_id = cur.fetchone()["id"]
+                _log(conn, task["board_id"], new_task_id, user_id, "created", task["text"])
     return True
 
 
@@ -589,8 +625,8 @@ def reorder_column(user_id: int, board_id: int, column: str, ordered_ids: list[i
             return False
         for position, tid in enumerate(ordered_ids):
             conn.execute(
-                "UPDATE tasks SET column_name = ?, sort_order = ?, updated_at = ? "
-                "WHERE id = ? AND board_id = ?",
+                "UPDATE tasks SET column_name = %s, sort_order = %s, updated_at = %s "
+                "WHERE id = %s AND board_id = %s",
                 (column, position, _now(), tid, board_id),
             )
     return True
@@ -602,7 +638,7 @@ def set_archived(task_id: int, user_id: int, archived: bool) -> bool:
         if not task:
             return False
         conn.execute(
-            "UPDATE tasks SET archived = ?, archived_at = ?, updated_at = ? WHERE id = ?",
+            "UPDATE tasks SET archived = %s, archived_at = %s, updated_at = %s WHERE id = %s",
             (1 if archived else 0, _now() if archived else "", _now(), task_id),
         )
         _log(conn, task["board_id"], task_id, user_id,
@@ -613,7 +649,7 @@ def set_archived(task_id: int, user_id: int, archived: bool) -> bool:
 def delete_task(task_id: int, user_id: int) -> bool:
     """The task owner or the board owner may delete."""
     with get_connection() as conn:
-        task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        task = conn.execute("SELECT * FROM tasks WHERE id = %s", (task_id,)).fetchone()
         if not task or task["board_id"] is None:
             return False
         board = _board_access(conn, task["board_id"], user_id)
@@ -621,8 +657,8 @@ def delete_task(task_id: int, user_id: int) -> bool:
             return False
         if task["owner_id"] != user_id and board["owner_id"] != user_id:
             return False
-        conn.execute("DELETE FROM task_shares WHERE task_id = ?", (task_id,))
-        conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+        conn.execute("DELETE FROM task_shares WHERE task_id = %s", (task_id,))
+        conn.execute("DELETE FROM tasks WHERE id = %s", (task_id,))
         _log(conn, task["board_id"], None, user_id, "deleted", task["text"])
     return True
 
@@ -632,7 +668,7 @@ def delete_task(task_id: int, user_id: int) -> bool:
 def save_push_subscription(user_id: int, endpoint: str, data_json: str) -> None:
     with get_connection() as conn:
         conn.execute(
-            "INSERT INTO push_subscriptions (endpoint, user_id, data, created_at) VALUES (?,?,?,?) "
+            "INSERT INTO push_subscriptions (endpoint, user_id, data, created_at) VALUES (%s,%s,%s,%s) "
             "ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id, data=excluded.data",
             (endpoint, user_id, data_json, _now()),
         )
@@ -640,13 +676,13 @@ def save_push_subscription(user_id: int, endpoint: str, data_json: str) -> None:
 
 def delete_push_subscription(endpoint: str) -> None:
     with get_connection() as conn:
-        conn.execute("DELETE FROM push_subscriptions WHERE endpoint = ?", (endpoint,))
+        conn.execute("DELETE FROM push_subscriptions WHERE endpoint = %s", (endpoint,))
 
 
 def get_subscriptions_for_users(user_ids: list[int]) -> list[dict]:
     if not user_ids:
         return []
-    placeholders = ",".join("?" * len(user_ids))
+    placeholders = ",".join(["%s"] * len(user_ids))
     with get_connection() as conn:
         rows = conn.execute(
             f"SELECT endpoint, data FROM push_subscriptions WHERE user_id IN ({placeholders})",
@@ -664,15 +700,15 @@ def get_task_detail(task_id: int, user_id: int) -> dict | None:
             return None
         detail = _task_to_dict(task)
         detail["subtasks"] = [dict(r) | {"done": bool(r["done"])} for r in conn.execute(
-            "SELECT id, text, done, position FROM subtasks WHERE task_id = ? ORDER BY position, id",
+            "SELECT id, text, done, position FROM subtasks WHERE task_id = %s ORDER BY position, id",
             (task_id,)).fetchall()]
         detail["comments"] = [dict(r) for r in conn.execute(
             "SELECT c.id, c.body, c.created_at, u.username FROM comments c "
-            "JOIN users u ON u.id = c.user_id WHERE c.task_id = ? ORDER BY c.id",
+            "JOIN users u ON u.id = c.user_id WHERE c.task_id = %s ORDER BY c.id",
             (task_id,)).fetchall()]
         detail["activity"] = [dict(r) for r in conn.execute(
             "SELECT a.action, a.detail, a.created_at, u.username FROM activity_log a "
-            "JOIN users u ON u.id = a.user_id WHERE a.task_id = ? ORDER BY a.id DESC LIMIT 30",
+            "JOIN users u ON u.id = a.user_id WHERE a.task_id = %s ORDER BY a.id DESC LIMIT 30",
             (task_id,)).fetchall()]
     return detail
 
@@ -686,33 +722,33 @@ def add_subtask(task_id: int, user_id: int, text: str) -> int | None:
         if not _accessible_task(conn, task_id, user_id):
             return None
         pos = conn.execute(
-            "SELECT COALESCE(MAX(position), -1) + 1 AS n FROM subtasks WHERE task_id = ?", (task_id,)
+            "SELECT COALESCE(MAX(position), -1) + 1 AS n FROM subtasks WHERE task_id = %s", (task_id,)
         ).fetchone()["n"]
         cur = conn.execute(
-            "INSERT INTO subtasks (task_id, text, position, created_at) VALUES (?,?,?,?)",
+            "INSERT INTO subtasks (task_id, text, position, created_at) VALUES (%s,%s,%s,%s) RETURNING id",
             (task_id, text.strip(), pos, _now()),
         )
-        return cur.lastrowid
+        return cur.fetchone()["id"]
 
 
 def update_subtask(subtask_id: int, user_id: int, text: str | None, done: bool | None) -> bool:
     with get_connection() as conn:
-        row = conn.execute("SELECT task_id FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
+        row = conn.execute("SELECT task_id FROM subtasks WHERE id = %s", (subtask_id,)).fetchone()
         if not row or not _accessible_task(conn, row["task_id"], user_id):
             return False
         if text is not None:
-            conn.execute("UPDATE subtasks SET text = ? WHERE id = ?", (text.strip(), subtask_id))
+            conn.execute("UPDATE subtasks SET text = %s WHERE id = %s", (text.strip(), subtask_id))
         if done is not None:
-            conn.execute("UPDATE subtasks SET done = ? WHERE id = ?", (1 if done else 0, subtask_id))
+            conn.execute("UPDATE subtasks SET done = %s WHERE id = %s", (1 if done else 0, subtask_id))
     return True
 
 
 def delete_subtask(subtask_id: int, user_id: int) -> bool:
     with get_connection() as conn:
-        row = conn.execute("SELECT task_id FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
+        row = conn.execute("SELECT task_id FROM subtasks WHERE id = %s", (subtask_id,)).fetchone()
         if not row or not _accessible_task(conn, row["task_id"], user_id):
             return False
-        conn.execute("DELETE FROM subtasks WHERE id = ?", (subtask_id,))
+        conn.execute("DELETE FROM subtasks WHERE id = %s", (subtask_id,))
     return True
 
 
@@ -724,17 +760,17 @@ def add_comment(task_id: int, user_id: int, body: str) -> int | None:
         if not _accessible_task(conn, task_id, user_id):
             return None
         cur = conn.execute(
-            "INSERT INTO comments (task_id, user_id, body, created_at) VALUES (?,?,?,?)",
+            "INSERT INTO comments (task_id, user_id, body, created_at) VALUES (%s,%s,%s,%s) RETURNING id",
             (task_id, user_id, body, _now()),
         )
-        return cur.lastrowid
+        return cur.fetchone()["id"]
 
 
 def delete_comment(comment_id: int, user_id: int) -> bool:
     with get_connection() as conn:
         row = conn.execute(
             "SELECT c.user_id, t.board_id FROM comments c JOIN tasks t ON t.id = c.task_id "
-            "WHERE c.id = ?", (comment_id,)).fetchone()
+            "WHERE c.id = %s", (comment_id,)).fetchone()
         if not row:
             return False
         board = _board_access(conn, row["board_id"], user_id) if row["board_id"] else None
@@ -742,7 +778,7 @@ def delete_comment(comment_id: int, user_id: int) -> bool:
             return False
         if row["user_id"] != user_id and board["owner_id"] != user_id:
             return False
-        conn.execute("DELETE FROM comments WHERE id = ?", (comment_id,))
+        conn.execute("DELETE FROM comments WHERE id = %s", (comment_id,))
     return True
 
 
@@ -753,8 +789,8 @@ def due_tasks(date_str: str) -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute(
             """SELECT id, board_id, assignee_id, text FROM tasks
-               WHERE due_date = ? AND archived = 0 AND column_name != 'Done'
-                 AND COALESCE(reminded_on, '') != ?""",
+               WHERE due_date = %s AND archived = 0 AND column_name != 'Done'
+                 AND COALESCE(reminded_on, '') != %s""",
             (date_str, date_str),
         ).fetchall()
     return [dict(r) for r in rows]
@@ -762,13 +798,13 @@ def due_tasks(date_str: str) -> list[dict]:
 
 def mark_reminded(task_id: int, date_str: str) -> None:
     with get_connection() as conn:
-        conn.execute("UPDATE tasks SET reminded_on = ? WHERE id = ?", (date_str, task_id))
+        conn.execute("UPDATE tasks SET reminded_on = %s WHERE id = %s", (date_str, task_id))
 
 
 def board_notify_user_ids(board_id: int, exclude: int | None = None) -> list[int]:
     """Users who should be notified about a board: owner + members (+ everyone if shared)."""
     with get_connection() as conn:
-        board = conn.execute("SELECT owner_id, is_shared FROM boards WHERE id = ?", (board_id,)).fetchone()
+        board = conn.execute("SELECT owner_id, is_shared FROM boards WHERE id = %s", (board_id,)).fetchone()
         if not board:
             return []
         if board["is_shared"]:
@@ -776,6 +812,6 @@ def board_notify_user_ids(board_id: int, exclude: int | None = None) -> list[int
         else:
             ids = {board["owner_id"]}
             ids.update(r["user_id"] for r in conn.execute(
-                "SELECT user_id FROM board_members WHERE board_id = ?", (board_id,)).fetchall())
+                "SELECT user_id FROM board_members WHERE board_id = %s", (board_id,)).fetchall())
     ids.discard(exclude)
     return list(ids)
